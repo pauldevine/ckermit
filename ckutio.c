@@ -6759,7 +6759,28 @@ ttpkt(speed,xflow,parity) long speed; int xflow, parity;
 #define TESTING234
 #ifdef TESTING234
     if (1) {
+        tcflag_t xonxoff;               /* Upstream edit 23 -- see below */
         debug(F100,"ttpkt TESTING234 rawmode","",0);
+/*
+  Upstream edit 23 (PORTING.md section 8), and deliberately NOT wrapped in
+  #ifdef VICTOR9K: there is nothing a guard could accomplish, because on
+  this port the flow-control decision is read from upstream's own "flow"
+  variable and never from these bits, so guarding the repair would fix
+  nothing anywhere and leave every other platform with the defect.
+
+  This block forces a known raw mode.  It runs 141 lines after the
+  flow-control arms above set IXON|IXOFF for FLO_XONX, and 4 lines before
+  the tcsetattr() that applies the struct -- so clearing those two bits
+  here silently undid that decision, and SET FLOW XON/XOFF could not reach
+  a driver through termios on ANY build taking the BSD44ORPOSIX arm.  It is
+  an "if (1)" inside an #ifdef of its own #define: a debugging block that
+  was left switched on.
+
+  Save the two bits and put them back at the end.  The block still gets the
+  raw mode it is asking for -- IXON|IXOFF are flow control, not cooking --
+  and the flow-control arm's decision is the one that reaches tcsetattr().
+*/
+        xonxoff = ttraw.c_iflag & (IXON|IXOFF);
 
         /* iflags */
         ttraw.c_iflag &= ~(PARMRK|ISTRIP|BRKINT|INLCR|IGNCR|ICRNL);
@@ -6827,6 +6848,8 @@ ttpkt(speed,xflow,parity) long speed; int xflow, parity;
         ttraw.c_cc[VMIN] = 1;           /* Supposedly needed for AIX */
 #endif  /* VMIN */
 
+        /* Upstream edit 23: restore the flow-control decision made above */
+        ttraw.c_iflag |= xonxoff;
     }
 #endif /* TESTING234 */
 
@@ -10848,8 +10871,24 @@ ttoc(c) char c;
                 debug(F101,"ttoc flow","",ttflow); /* Maybe we're xoff'd */
 #ifndef Plan9
 #ifdef POSIX
-                /* POSIX way to unstick. */
-                debug(F100,"ttoc tcflow","",tcflow(ttyfd,TCOON));
+/*
+  Upstream edit 24 (PORTING.md section 8), unguarded.  This was written as
+
+      debug(F100,"ttoc tcflow","",tcflow(ttyfd,TCOON));
+
+  and ckcdeb.h defines debug(a,b,c,d) as nothing when NODEBUG is set, so
+  the macro took the call with it: in any NODEBUG build the entire POSIX
+  recovery from a lost XON was absent, and this is the only caller of
+  tcflow() in the module.  A functional side effect inside a debug argument
+  is a defect wherever it appears; hoisting it out is a no-op in a build
+  that has debugging on, and restores the intended behaviour in one that
+  does not.
+*/
+                {                       /* POSIX way to unstick. */
+                    int tcf;
+                    tcf = tcflow(ttyfd,TCOON);
+                    debug(F101,"ttoc tcflow","",tcf);
+                }
 #else
 #ifdef BSD4                             /* Berkeley way to do it. */
 #ifdef TIOCSTART

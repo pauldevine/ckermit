@@ -2588,8 +2588,36 @@ zchko(name) char *name;
 #endif  /* O_NONBLOCK */
         }
         debug(F111,"zchko open mode",name,flags);
-        /* Must attempt to open it so isatty() can be used */
-        fd = open(name,O_WRONLY|O_CREAT|flags,0600);
+/*
+  Upstream edit 25 (PORTING.md section 8), unguarded.
+
+  This probe exists for ONE reason: to let a terminal device be opened as
+  an output file, which it decides with isatty() and which needs a file
+  descriptor.  It used to get that descriptor with O_CREAT, so for a name
+  that did not exist yet -- which is the ordinary case for a received file
+  -- it CREATED the file, called isatty() on it, learned the answer it
+  could have had for nothing, and deleted it again, all before a single
+  data byte moved.
+
+  Only an existing file can be a terminal, so there is nothing for isatty()
+  to learn about a name that is not there.  Ask access() -- which this
+  function is already asking, one line above -- and skip the probe when the
+  answer is no.  The ENOENT path below is what that case already fell
+  through to, so the result is unchanged; what goes away is the create and
+  the delete.
+
+  Two reasons this is worth changing rather than documenting.  It is not
+  free: a directory entry is cheap on a Unix filesystem and expensive on
+  some others, and on a FAT root with 156 entries this pair was measured at
+  4.4 SECONDS per received file, fixed and rate-independent (PORTING.md
+  section 16bc).  And it is the hazard the 2022-05-09 fix immediately below
+  was written about -- a writability probe that creates and deletes the
+  very file it is asked about is one bug away from destroying a file the
+  caller was about to look at, which is exactly what the file-collision
+  logic in rcvfil() needs to still be there.  Not creating it is a better
+  answer than remembering not to delete it.
+*/
+        fd = preexisted ? open(name,O_WRONLY|flags,0600) : -1;
         debug(F111,"zchko open",name,fd);
         if (fd > -1) {                  /* to get a file descriptor */
             if (isatty(fd))             /* for isatty() */
@@ -2600,17 +2628,10 @@ zchko(name) char *name;
               spurious backup file when downloading
             */
             fd = close(fd);             /* 2022-05-09 */
-            if (preexisted) {
-                debug(F110,"zchko leaving preexisting file alone",name,0);
-            } else if (zdelet(name) == 0) {    /* 2022-05-09 */
-                debug(F110,"zchko delete ok",name,0);
-            } else {
-                debug(F111,"zchko delete failed",name,errno);
-            }
             if (istty) {
                 goto doaccess;
             }
-        } else {
+        } else if (preexisted) {
             debug(F111,"zchko open errno",name,errno);
             if (errno != ENOENT) {
                 x = -1;
@@ -2618,13 +2639,15 @@ zchko(name) char *name;
                 /* previously control fell through causing core dumps */
                 /* on builds with -DNOUUCP */
             }
+        } else {
+            debug(F110,"zchko does not exist, not probed",name,0);
             /*
-              ENOENT means some component of the path (typically the
-              parent directory) does not exist yet, e.g. this is the
-              first file in a not-yet-created subdirectory of a
-              recursive transfer.  That's not a permission failure, so
-              fall through to the access() based ancestor-directory
-              check below instead of reporting write access denied.
+              The name does not exist, so it cannot be a terminal and there
+              is nothing to open.  Some component of the path may not exist
+              either, e.g. this is the first file in a not-yet-created
+              subdirectory of a recursive transfer.  Neither is a permission
+              failure, so fall through to the access() based
+              ancestor-directory check below.
             */
         }
     }
