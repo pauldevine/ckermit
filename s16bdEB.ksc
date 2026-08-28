@@ -1,0 +1,30 @@
+; Leg EB -- THE HEADLINE.  Same leg as EA, one binary over.
+;
+; BENCH take-file: there is no "set line" here.  ~/.kermrc names the adapter.
+; CHECK THAT IT NAMES THE ONE THAT IS PLUGGED IN.
+;
+;  Binary under test: D:\CKFNF.EXE, md5 039fae2a..., edits 23-26.
+;
+;  PREDICTION, fixed before the run:
+;      EA - EB  >=  2.0 s          (SS16bc priced zchko at 4.404 s on a
+;                                   156-entry root; this one has 184)
+;      dec max  450 -> ~100-150 at #3
+;      byte-exact, rxlost=0 rxfull=0, wire bytes IDENTICAL to EA
+;
+;  If the wire bytes differ from EA, the legs are not comparable and the
+;  clock difference means nothing -- read the wire before the clock.
+;
+; READ IT WITH:
+;     python3 v9k/tools/pktstat.py --rxbytes <from STEPEB.OUT> s16bdEB.pkt
+; Residual -11 clean, +28 with a startup timeout.
+; cmp FIRST, then the counters.  A leg that is fast and wrong is the failure.
+
+set speed 9600
+set receive timeout 20
+set parity none
+set prefixing cautious
+set block 3
+set retry 30
+log packets s16bdEB.pkt
+send rcveb.dat
+statistics

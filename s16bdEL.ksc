@@ -1,0 +1,16 @@
+; Leg EL -- MECHANISM -- what is the residual after edit 25?  Receive into A:.
+;
+; BENCH take-file: ~/.kermrc names the adapter.
+; START THE VICTOR FIRST; wait for the drive to go quiet.
+; The CLOCK ON THIS LEG IS NOT A RESULT -- -d costs ~25 ms/byte.
+; The result is the Victor's DEBUG.LOG, not anything here.
+
+set speed 9600
+set receive timeout 20
+set parity none
+set prefixing cautious
+set block 3
+set retry 30
+log packets s16bdEL.pkt
+send rcvel.dat
+statistics

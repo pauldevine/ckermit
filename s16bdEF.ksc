@@ -1,0 +1,25 @@
+; Leg EF -- REGRESSION at 38400, the rate this port ships.
+;
+; BENCH take-file: there is no "set line" here.  ~/.kermrc names the adapter.
+; CHECK THAT IT NAMES THE ONE THAT IS PLUGGED IN.
+;
+;  Treatment binary at the shipping rate.  Control: SS16bc leg HA --
+;  26.200 s, 1,250 cps, 37,557 wire bytes, 18 packets, 0/0.
+;
+;  PASS IS byte-exact + rxlost=0 rxfull=0.  There is no adjacent 38400
+;  control in this sitting, so the CLOCK here is not a result (SS16al).
+;
+; READ IT WITH:
+;     python3 v9k/tools/pktstat.py --rxbytes <from STEPEF.OUT> s16bdEF.pkt
+; Residual -11 clean, +28 with a startup timeout.
+; cmp FIRST, then the counters.  A leg that is fast and wrong is the failure.
+
+set speed 38400
+set receive timeout 20
+set parity none
+set prefixing cautious
+set block 3
+set retry 30
+log packets s16bdEF.pkt
+send rcvef.dat
+statistics

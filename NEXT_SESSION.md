@@ -7,8 +7,10 @@ Handoff for the Victor 9000 port, written 9 August 2026, revised after
 and again on **21 August after §16bc, the first bench sitting since 12
 August**.
 **No live defect in the receive path.** §16af closed the last one.
-**One live defect elsewhere: the transfer display cannot be used at 38400
-on FreeDOS for Victor — §16bc, item 17.**
+**And no live defect anywhere else on the list.** §16bc's transfer-display
+failure at 38400 on FreeDOS for Victor is a FreeDOS console-speed problem,
+not this port's — closed here **22 August 2026** and moved to the myfreedos
+backlog. Item 17.
 
 ---
 
@@ -1228,25 +1230,52 @@ What MAME could not settle:
   rxfull=0` and a byte-exact md5 is what says the wire protocol did not
   move.
 
-**8. Report edits 14, 15, 16 and 17 upstream — plus the two `ckutio.c`
-defects §16aj found and did NOT fix, and the `ckcfns.c` one §16aw found.**
+**8. Report edits 14, 15, 16, 17 and 23-26 upstream.**
 
-The two flow-control ones are not 16-bit defects, and neither is specific to
-this port:
+**CHANGED 25 August 2026: the four "found and not fixed" defects are now
+FIXED, as unguarded edits 23-26**, agreed as a group under hard rule 1.
+They are no longer a separate category — they are edits this tree carries,
+and they are the four most worth sending, because each is wrong on every
+platform that compiles it. Built, preprocessor-verified, and **RUN ON HARDWARE 26-28 August 2026 —
+§16bd, eleven legs.** DGROUP unchanged at 48,896 (74%), image +80 bytes,
+19 warnings before and after, none at any of the four sites. **23
+confirmed** (`crtscts/ixon[0]=1`), **25 confirmed and measured at 1.0 s**,
+**26 no regression**, **24 unexercised and unexercisable on this bench**.
+All transfers byte-exact, `rxlost=0 rxfull=0`.
 
-- **`ckutio.c:6758`** — `ttpkt()`'s `TESTING234` block clears `IXON|IXOFF`
+**The "~4.4 s" this item used to carry was wrong by 4× and the correction
+is the finding.** The `A:\` receive penalty is **5 s on a 211-entry root
+against 1 s on a 28-entry one**; edit 25 removes **1.0 s**; the other
+**4.0 s is `rcvfil()` doing four independent negative lookups of the same
+absent name**, each a full-root scan. **That is a new report-upstream item
+and it is the biggest one on this list** — it is a fixed per-file cost that
+scales with directory population and has nothing to do with the wire.
+
+The four, and what each was (the descriptions below are kept because they
+are what to send):
+
+- **`ckutio.c:6758` — EDIT 23.** `ttpkt()`'s `TESTING234` block cleared `IXON|IXOFF`
   out of `ttraw` unconditionally, four lines before the `tcsetattr()` that
   applies it and 141 lines after the `FLO_XONX` arm set them. `SET FLOW
   XON/XOFF` therefore cannot reach a driver through termios on any build
   taking the `BSD44ORPOSIX` arm. It is an `if (1)` inside an `#ifdef` of
-  its own `#define` — a debugging block left switched on. **Not fixed
-  here: it is not a guarded no-op, it changes behaviour everywhere, and
-  hard rule 1 says say so rather than do it.**
-- **`ckutio.c:10849`** — `ttoc()`'s `tcflow(ttyfd,TCOON)`, the POSIX
+  its own `#define` — a debugging block left switched on. **Fixed 25 August 2026 as edit 23**, unguarded — it is not a guarded
+  no-op and it changes behaviour everywhere, which turned out to be the
+  argument FOR fixing it rather than against, since the behaviour it
+  changes is behaviour that is wrong. A guard would have repaired it only
+  on the one platform that does not use these bits.
+- **`ckutio.c:10849` — EDIT 24.** `ttoc()`'s `tcflow(ttyfd,TCOON)`, the POSIX
   recovery from a lost XON, is the argument of a `debug()` call, so
   `NODEBUG` discards it. It is the only caller of `tcflow()` in the
   module. `ckvictor.c`'s `V9K_FCSPIN` is the port's own backstop for it.
-- **`ckufio.c`'s `zchko()`** — the writability probe **creates a file and
+  **Fixed 25 August 2026 as edit 24**, unguarded — a no-op in any build
+  with debugging on, since the macro already evaluated its argument there.
+  Verified by the same measurement whose result it reverses: `wcc -pl` now
+  shows `tcf = tcflow(ttyfd,1)` in the preprocessed `NODEBUG` output, where
+  §16aj recorded that `tcflow` occurred nowhere but its own prototype.
+  **`V9K_FCSPIN` stays** — it is cheap and bounded, and it is now
+  belt-and-braces rather than the only recovery.
+- **`ckufio.c`'s `zchko()` — EDIT 25.** The writability probe **created a file and
   deletes it again**, on every received file, before any data moves, purely
   so it can call `isatty()` on the descriptor (the `NOUUCP` arm, which this
   port takes). The function's own header comment opens **"NOTE: The design
@@ -1256,11 +1285,14 @@ this port:
   danger as much as the cost: the same function already carries a 2022 fix
   and a long comment about **not** destroying a pre-existing file, which is
   exactly the failure mode "test writability by creating the file" invites.
-  A stat of the parent directory answers the question the probe is asking.
-  **Not fixed here** — it is upstream's design decision, and this port has
-  no reason to be the one to change it. §16bc.
+  **Fixed 25 August 2026 as edit 25**, unguarded, and the fix is smaller
+  than the stat-the-parent one considered here: `access(name,F_OK)` was
+  already being called one line above, so the probe is simply skipped when
+  the name does not exist — only an existing file can be a terminal. The
+  result cannot change; what goes away is the create and the delete.
+  §16bc, PORTING.md §8 item 25.
 
-- **`ckcfns.c:6914`** — `snddir()` has an `if` with no body:
+- **`ckcfns.c:6914` — EDIT 26.** `snddir()` had an `if` with no body:
 
   ```c
       if (zfnqfp(name,CKMAXPATH,fnbuf))
@@ -1275,12 +1307,13 @@ this port:
   **uninitialised automatic**, so the header prints stack contents and
   `sprintf` runs to whatever NUL it finds. Found by §16aw while reading the
   function for an unrelated reason; harmless on the path this port takes,
-  because `zfnqfp()` succeeds. **Not fixed here** — it needs a decision
-  about what the header should say when qualification fails, which is
-  upstream's to make.
+  because `zfnqfp()` succeeds. **Fixed 25 August 2026 as edit 26**,
+  unguarded: it falls back to the unqualified name, which is the least
+  surprising thing the header can say and needs no decision from anyone.
 
-Then the four edits. Two independent defects, both found only because this
-port is an unusual build, and neither specific to it:
+Then edits 14-17, which this tree has carried for longer. Two independent
+defects, both found only because this port is an unusual build, and neither
+specific to it:
 
 - **14** — `ckcmai.c`'s `#ifndef NOTCPIP` has been mis-nested for a very
   long time and disables two documented features, the init file and a
@@ -1838,8 +1871,9 @@ damaged, 0 timeouts, 0 resends** — 13–15% faster than MS-DOS 3.1 on the
 same machine in the same hour. **And §16ao's console item is closed too**:
 `screenshots/stephh IMG_2032.png` shows §1g's ANSI arm drawing the
 fullscreen display correctly, which §16az and §16ba both failed to capture.
-**What came OUT of it is new item 17.** The text below is kept because it
-is what the branches were built from.
+**What came OUT of it is item 17, which is now closed as a FreeDOS
+console-speed problem rather than a port defect.** The text below is kept
+because it is what the branches were built from.
 
 **Was: The two things
 that would have broken it are now handled, from FreeDOS's own sources, and
@@ -1968,17 +2002,22 @@ or when `msleep()` turns up in a third place.
 
 ---
 
-**17. THE TRANSFER DISPLAY BREAKS A 38400 RECEIVE ON FREEDOS FOR VICTOR.
-NEW, §16bc, and the only live defect on the list.**
+**17. ~~THE TRANSFER DISPLAY BREAKS A 38400 RECEIVE ON FREEDOS FOR
+VICTOR.~~ NOT THIS PORT'S DEFECT — CLOSED 22 August 2026 and moved to the
+myfreedos backlog.** The measurements below stand and are worth keeping;
+the reading of them is that **FreeDOS for Victor draws the screen more
+slowly than Victor MS-DOS 3.1 does**, and at 38400 this port has no
+foreground slack to absorb the difference (§16ag). **The answer on this
+side is documentation: `--nodisplay` at 38400 on that DOS.**
 
-**Two failures against a control that is clean twice.** Leg HH: the Victor
-NAKs a long data packet repeatedly until the host quits — packet 05 in pass
-1, 06 in pass 2 — while the **host records 0 damaged packets**, so the
-corruption is entirely in the Victor's receiver. Leg HG is the same leg
-with `--nodisplay` and is byte-exact at 1,412–1,438 cps both times.
+**What was measured.** Leg HH: the Victor NAKs a long data packet
+repeatedly until the host quits — packet 05 in pass 1, 06 in pass 2 —
+while the **host records 0 damaged packets**, so the corruption is entirely
+in the Victor's receiver. Leg HG is the same leg with `--nodisplay` and is
+byte-exact at 1,412–1,438 cps both times.
 
-**The instrument names the location, which is why this is not an argument
-by elimination.** From `screenshots/stephh IMG_2035.png`:
+**The instrument names the location**, which is why this was never an
+argument by elimination. From `screenshots/stephh IMG_2035.png`:
 
 ```
 rxlost=38 rxfull=0 rxpeak=1951 of 4096
@@ -1989,39 +2028,43 @@ wcon n=342 max=22 tot=706 cs      elapsed=1999 cs
 
 **`tag=1` is `V9K_TAG_WRITE` and `fd=1` is the console.** §16m's foreground
 tag and §16q's first-loss latch agree: the foreground was **inside a write
-to the screen** both at the first loss and at the peak. **`wcon` prices it:
-342 console writes totalling 7.06 s in a 19.99 s run — 35%.** And
-`rxpeak=1951` equals the screen's `Packet Length: 1951`, so the ring peaked
-at exactly one packet — **the receiver never got ahead, it lost bytes
-inside each long packet**, which is why it is CRC errors and not timeouts.
-**First time in this tree the foreground tag has named a defect on its
-own.**
+to the screen** both at the first loss and at the peak. And `rxpeak=1951`
+equals the screen's `Packet Length: 1951`, so the ring peaked at exactly
+one packet — **the receiver never got ahead, it lost bytes inside each long
+packet**, which is why it is CRC errors and not timeouts. **First time in
+this tree the foreground tag has named a defect on its own.**
 
-**Mechanism, available and not proven:** hard rule 6 puts every console
-write through INT 21h; §16az established that the myfreedos kernel
-busy-waits on TBE and writes a character to the 7201 on **every** INT 21h
-call; §16ag established that at 38400 the foreground has no slack per byte.
+**The per-write cost is what closed it, and it is about 2×.** FreeDOS at
+38400 (leg HH) spends **7.06 s of a 19.99 s run in console writes — 35%,
+~20.6 ms per write over 342 writes.** Victor MS-DOS 3.1 at 38400 on the
+same fixture (§16ap legs HB/HD) pays **4.188 s of 35.965 s, 12%**, over
+331–514 writes. Same display code, same rate, same machine. Whether the
+extra cost is §16az's INT 21h tracer — the myfreedos kernel busy-waits on
+TBE and writes a character to the 7201 on **every** INT 21h call — or the
+console driver's draw path in general is **not separated by these legs, and
+does not need to be from this side.**
 
-**Two things the evidence does NOT support, so do not write them down as
-if it did.** HG and HH differ in the display **and** the redirect, so what
-is measured is *console output*, not specifically §1g's cursor addressing.
-And **no MS-DOS 38400 display leg exists**, so FreeDOS-specificity is
-untested — §16ba measured the display at ~6 s (~12%) on a 9600 MS-DOS
-receive, which was survivable; here it is fatal.
+**The three cells the original plan proposed to measure were already
+filled in, which is what made this closable with no bench sitting:**
 
-**The cheap next legs, in order:**
+- **MS-DOS × 38400 × display on: CLEAN, on hardware, twice** — §16ap legs
+  HB and HD, `rxlost = 0 rxfull = 0`, 37,557 wire bytes, 18 packets, zero
+  retransmissions, md5-identical, `rxpeak` 2,975 (*57 bytes lower* than the
+  display-off control). **This retracts this item's original claim that "no
+  MS-DOS 38400 display leg exists"** — two existed twelve days earlier.
+- **FreeDOS × 9600 × display on: CLEAN** — §16ba leg FDH, run to
+  completion, 604 cps, wire bytes identical to its control (39,576 both),
+  the display costing +5.90 s `wcon` / +6.05 s elapsed. Under MAME, which
+  is the one confound left and is not worth a leg to remove.
+- **FreeDOS × 38400 × display on: the failure above.**
 
-1. **One MS-DOS leg at 38400 with the display on.** Settles whether this is
-   FreeDOS or is simply 38400. Costs one leg and needs no new binary.
-2. **One FreeDOS leg at 38400, display on, WITH the redirect** — that
-   separates the display from the redirect, which HH could not.
-3. **9600 on FreeDOS with the display on**, for whether it is rate or DOS.
+So it is the **interaction**, and the question was never "rate or DOS" —
+which is what the original three-leg plan was built to ask.
 
-**Do not fix it before measuring which it is.** If it is console cost in
-general, the lever is `wcon`: 342 writes for one transfer is a lot, and
-§1g repaints far more than it needs to. If it is FreeDOS's INT 21h tracer,
-it is not this port's to fix and the answer is documentation —
-**`--nodisplay` at 38400 on that DOS.**
+**A label collision is what hid §16ap, and it will do it again.** §16ap and
+§16bc both use H-series leg labels, twelve days apart: §16ap's HG/HH are
+**9600 MS-DOS** legs and §16bc's HG/HH are the **FreeDOS 38400** pair.
+**A leg label is unique only within its sitting. Cite the section with it.**
 
 ## 2. The two builds
 
@@ -2193,6 +2236,24 @@ maintain the burst table. Without that, the report would print
 - **Do NOT combine `-dKEEP_DEBUG` with anything about throughput** — ~25 ms
   per received byte (§16k).
 - **There is no `-fstack-usage` under Open Watcom.**
+
+---
+
+## 3a. Bench planning — batch by sitting, not by question
+
+**Setup costs 5-6 minutes; a leg costs 30 seconds.** Setup dominates by an
+order of magnitude, so the unit of planning is the **sitting**. §16bd took
+three trips to the machine where one would have done, and rounds 2 and 3
+were each one leg's worth of new thinking that was predictable in advance.
+
+**Before ending any sitting's staging, ask what the plausible RESULTS of
+these legs will make you want to run next, and stage that too.** A control
+binary costs one `make` and a few hundred KB of `D:`; stage it
+speculatively. An unnecessary leg costs 30 seconds. A leg that was not
+staged costs another full setup.
+
+**And never report an unrun leg as an outstanding item unless it was
+actually asked for.**
 
 ---
 

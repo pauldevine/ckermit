@@ -316,12 +316,26 @@ Streaming is **not** network-coupled — it is negotiated protocol behaviour in
 
 ## 8. Upstream changes made
 
-Twenty-two edits, nineteen of them small, guarded and invisible to every
-other platform. **Edits 14, 15 and 16 are the exceptions and are flagged as
-such**: 14 repairs a mis-nested `#endif` in `ckcmai.c`, and a preprocessor
-conditional cannot itself be made conditional; 15 and 16 fix a 16-bit
-truncation each, and both are provable no-ops wherever `int` is 32 bits, so
-guarding them would mean knowingly shipping the broken form everywhere else.
+Twenty-six edits, nineteen of them small, guarded and invisible to every
+other platform. **Edits 14, 15, 16 and 23-26 are the exceptions and are
+flagged as such**: 14 repairs a mis-nested `#endif` in `ckcmai.c`, and a
+preprocessor conditional cannot itself be made conditional; 15 and 16 fix a
+16-bit truncation each, and both are provable no-ops wherever `int` is 32
+bits, so guarding them would mean knowingly shipping the broken form
+everywhere else.
+
+**Edits 23-26 are a fourth kind and were agreed as a group on 25 August
+2026**: they are the four defects this port had FOUND AND DELIBERATELY NOT
+FIXED, carried in the two lists below for as long as five sections, and the
+decision to fix them was made explicitly under hard rule 1 rather than
+arrived at. **None of the four is a no-op anywhere, and that is the point of
+them** — each is wrong on every platform that compiles it, so a `VICTOR9K`
+guard would repair the defect on the one machine that is measured and leave
+it standing on all the ones that are not. 23 and 24 are in the flow-control
+path and were found by §16aj; 25 is `zchko()`'s writability probe, found by
+§16bc after it cost 4.4 seconds per received file; 26 is an `if` with no
+body, found by §16aw. **They are the largest single widening of this port's
+upstream footprint and they are also the four most worth sending upstream.**
 **Edit 19 is a third 16-bit truncation and is guarded anyway** — the same
 argument as 15 and 16 applies to it and was heard and declined; that was
 the call made when it was agreed, and it is recorded here so the
@@ -331,22 +345,25 @@ been there is a no-op wherever `NOFRILLS` is not defined, and it is
 guarded anyway because it would otherwise change what every other
 `NOFRILLS` build does and none of them is measured here.
 
-**Two further upstream defects are FOUND AND NOT FIXED**, both in
-`ckutio.c` and both discovered by §16aj while building flow control. They
-are listed here because this is the index of everything this port knows
-about upstream, and they belong in the same report as 14-17:
+**Two further upstream defects were FOUND AND NOT FIXED for five sections,
+and are now edits 23 and 24.** Both are in `ckutio.c` and both were
+discovered by §16aj while building flow control. They are described here as
+well as in the numbered list because this is the index of everything this
+port knows about upstream:
 
 - **`ckutio.c:6758`** — `ttpkt()`'s `TESTING234` block, an `if (1)` inside
-  an `#ifdef` of its own `#define`, clears `IXON|IXOFF` out of `ttraw`
+  an `#ifdef` of its own `#define`, cleared `IXON|IXOFF` out of `ttraw`
   unconditionally, four lines before the `tcsetattr()` that applies the
   struct and 141 lines after the `FLO_XONX` arm set them. **`SET FLOW
-  XON/XOFF` therefore cannot reach a driver through termios** on any build
-  that takes the `BSD44ORPOSIX` arm, which is every POSIX one.
+  XON/XOFF` therefore could not reach a driver through termios** on any
+  build that takes the `BSD44ORPOSIX` arm, which is every POSIX one.
+  **Edit 23.**
 - **`ckutio.c:10849`** — `ttoc()`'s only call to `tcflow(TCOON)`, the POSIX
-  recovery from a lost XON, is written **inside a `debug()` argument**, and
+  recovery from a lost XON, was written **inside a `debug()` argument**, and
   `NODEBUG` defines `debug(a,b,c,d)` as nothing. It is the only caller of
-  `tcflow()` in the module, so the whole unstick path vanishes in a
+  `tcflow()` in the module, so the whole unstick path vanished in a
   `NODEBUG` build. A functional side effect inside a logging macro.
+  **Edit 24.**
 
 **Three more were found by §16ao while building the file-transfer
 display, and none is fixed here either:**
@@ -368,11 +385,15 @@ display, and none is fixed here either:**
   is only reached when neither termcap nor `MYCURSES` has supplied
   `CK_CURPOS`, which is why **it has apparently never been compiled**.
 
-Neither of the `ckutio.c` pair is touched here, and nor are these three.
-Fixing the first `ckutio.c` one is not a guarded no-op — it changes
-behaviour on every platform, which is the point of reporting it rather than
-patching it (hard rule 1). §16aj has the measurements and what the port
-does instead; §16ao has the same for the display three.
+**The `ckutio.c` pair is now fixed — edits 23 and 24 — and these three
+display ones are not.** The argument that kept the pair unfixed was that
+neither is a guarded no-op and both change behaviour on every platform;
+that is still true, and on 25 August it was decided that it is a reason to
+fix them properly rather than a reason to leave them, since the behaviour
+they change is behaviour that is wrong. §16aj has the measurements and what
+the port did instead in the meantime; §16ao has the same for the display
+three, which stay unfixed because this port supplies its own curses
+(`ckvictor.c` §1g) and so has no measured position on any of them.
 
 1. **`ckcdeb.h`** — wrapped the `sig_t` typedef in `#ifndef CK_NO_SIG_T`.
    macOS (and the retired build's newlib) already define `sig_t`. Open Watcom
@@ -902,8 +923,158 @@ does instead; §16ao has the same for the display three.
     that compiles to an empty statement. **18 warnings become 19 and all
     nineteen are that species or upstream's.**
 
-Items 2, 3, 6, 7, 8, 10, 11, 13, 14, 15, 16, 19 and 22 are worth offering upstream
-regardless of this port, and **14 and 15 are the ones to send first**: it is a plain
+23. **`ckutio.c`** — `ttpkt()`'s `TESTING234` block now saves the
+    `IXON|IXOFF` bits out of `ttraw.c_iflag` before it forces raw mode and
+    ORs them back immediately before the block closes, so the flow-control
+    arm 141 lines above is once again what decides them. Three lines: a
+    `tcflag_t` declaration, a save, a restore.
+
+    **Unguarded, and a guard could not accomplish anything here.** This
+    port reads upstream's own `flow` variable and never these bits —
+    `ckvictor.c` §1f, and §16aj records that the FIRST version of
+    `v9k_ser_setflow()` did read the bits and leg FB came back with the
+    mode still off — so a `VICTOR9K` arm would repair the defect on the one
+    platform that does not use it and leave it standing on every platform
+    that does.
+
+    The block is an `if (1)` inside an `#ifdef` of its own `#define`: a
+    debugging block left switched on. While it stood, **`SET FLOW
+    XON/XOFF` could not reach a driver through termios on any build taking
+    the `BSD44ORPOSIX` arm**, which is every POSIX one. It never touched
+    `c_cflag`, so the `CRTSCTS` half always survived — which is why §16aj
+    could see one mechanism arrive and not the other.
+
+    Verified with `wcc -pl`, the same instrument §16aj used to establish
+    the defect: `xonxoff = ttraw.c_iflag & (0x0400|0x1000)` and
+    `ttraw.c_iflag |= xonxoff` both survive preprocessing under `NODEBUG`.
+    **On this port the visible effect is one debug line**:
+    `v9k_ser_setflow`'s cross-check was written to log the two bits
+    "so that the day it does change is visible rather than inferred", and
+    it will now read 1 for `FLO_XONX` where it has always read 0.
+
+24. **`ckutio.c`** — `ttoc()`'s `tcflow(ttyfd,TCOON)` hoisted out of the
+    `debug()` argument it was written inside, into a temporary that the
+    `debug()` then reports.
+
+    **Unguarded**, and a no-op in any build that has debugging on, because
+    there the macro already evaluated its argument. In a `NODEBUG` build —
+    which is this port's default — `ckcdeb.h` defines `debug(a,b,c,d)` as
+    nothing and took the call with it, and since this is the **only caller
+    of `tcflow()` in the module**, POSIX's entire recovery from a lost XON
+    was absent. A functional side effect inside a logging macro is a defect
+    wherever it appears.
+
+    Verified the same way and by the same claim it refutes: `ckvictor.c`'s
+    §1f comment records "Measured, not read: `tcflow` does not occur
+    anywhere in the preprocessed `ckutio.c` for this build except in its
+    own prototype." It now occurs twice — the prototype, and
+    `tcf = tcflow(ttyfd,1)`. **The driver's own backstop stays**:
+    `V9K_FCSPIN` exists because this call was missing, and it is cheap,
+    bounded and now belt-and-braces rather than sole.
+
+25. **`ckufio.c`** — `zchko()` no longer CREATES AND DELETES the file it
+    was asked about. The probe exists for one reason, to let a terminal
+    device be opened as an output file, which it decides with `isatty()`
+    and which needs a descriptor; it used to obtain that descriptor with
+    `O_CREAT`, so for a name that did not exist yet — the ordinary case for
+    a received file — it created the file, called `isatty()` on it, learned
+    an answer it could have had for nothing, and deleted it again, before a
+    single data byte moved. `access(name,F_OK)` was **already being called
+    one line above** for the `preexisted` flag, so the fix is to use it:
+    open only when the name is there, and drop the `zdelet()` entirely.
+
+    **Unguarded**, and it is the one of these four with a measurement
+    behind it. §16bc legs HL/HN put the pair at **4.404 s (host clock) and
+    4.50 s (Victor)** per received file on a 156-entry FAT root, fixed and
+    rate-independent, with leg HP's debug log showing `gtimer` jumping 5 s
+    between the F packet and its ACK and four stats, one CREATE and one
+    DELETE inside it. That is the single largest fixed cost this port has
+    ever measured on the receive path, and it is not on the receive path at
+    all — it is before it.
+
+    **The correctness argument is that the result cannot change**, and it
+    is short enough to state completely. Only an existing file can be a
+    terminal, so `isatty()` has nothing to learn about a name that is not
+    there. For a name that does not exist the old code opened it, found
+    `istty` false, deleted it and fell through to the ancestor-directory
+    `access()` check; the new code falls through to the same check without
+    the round trip. For a name that does exist, nothing changed: the open
+    still happens, without `O_CREAT`, which for an existing file is the
+    same open. The one case that reaches a different mechanism is a
+    non-existent file in a non-writable directory — `open()` used to report
+    it `EACCES`, and now the ancestor check reports it — and both answers
+    are −1.
+
+    **The second reason is the hazard, not the cost.** The function's own
+    header comment opens *"NOTE: The design is flawed"*, and the
+    `preexisted` bookkeeping immediately below it is a 2022-05-09 fix for
+    this probe having destroyed a pre-existing file — precisely the file
+    the collision logic in `rcvfil()` was about to look at. A writability
+    test that creates and deletes the file it is asked about is one bug
+    away from that failure permanently. **Not creating it is a better
+    answer than remembering not to delete it.**
+
+26. **`ckcfns.c`** — `snddir()`'s `if (zfnqfp(name,CKMAXPATH,fnbuf))` given
+    a body. It had none: `debug()` carries its own semicolon in every build
+    and expands to nothing under `NODEBUG`, so the next line was a
+    statement of its own and the `if` controlled an empty one. The compiler
+    is silent about it in both configurations.
+
+    **Unguarded and safe everywhere.** `zfnqfp()`'s result was discarded,
+    and `fnbuf` is an **uninitialised automatic** eight lines above the
+    `sprintf` that makes it the `%s` of the listing's `"Listing files: %s"`
+    header — so on the failure path the header prints stack contents and
+    the `sprintf` runs to whatever NUL it finds. The fix falls back to the
+    unqualified name, which is the least surprising thing the header can
+    say and answers the question §16aw left open ("what should it say when
+    qualification fails") in the way that needs no decision from anyone.
+    Harmless on the path this port takes, because `zfnqfp()` succeeds —
+    which is exactly why it survived to be found by reading rather than by
+    failing. Found by §16aw while reading the function for an unrelated
+    reason.
+
+**What the four cost, measured after the fact:** DGROUP is **48,896 of
+65,536 (74%), unchanged to the byte**; the image goes 231,172 → **231,252,
++80 bytes**; the load requirement goes 243,236 → **243,316 (237K)**;
+smallest Victor **384K, unchanged**. **Warnings are 19 before and 19
+after** — the same nineteen, none of them at any of the four sites, counted
+on a clean rebuild of each tree rather than assumed. Edit 25 removes a
+`zdelet()` call and its two branches, which is most of why four edits cost
+80 bytes.
+
+**All four ran on hardware 26-28 August 2026 — §16bd, `HW_TEST_16bd.md`.**
+Eleven legs on the real Victor 9000. **23 is confirmed** (leg EJ:
+`v9k_ser_setflow crtscts/ixon[0]=1`, four times, where that counter had
+read 0 for the port's whole life). **25 is confirmed and measured** (legs
+EN/EL: the control logs `zchko open=7` / `isatty` / `delete ok`, the
+treatment logs `open=-1` / `does not exist, not probed`, and the clock
+difference is **1.0 s**, constant across fourteen successive `gtimer`
+readings and confirmed independently by total elapsed, 3600 cs against
+3500). **26 shows no regression** (leg EK: `Listing files: A:/*` over 202
+files). **24 remains unexercised** — reaching it needs a `ttoc()` write
+timeout under `FLO_XONX`, and no host on this bench has ever sent an XOFF.
+Every transfer byte-exact, `rxlost=0 rxfull=0` throughout.
+
+**And the prediction this section carried — "~4.4 s" — was wrong by 4×,
+which is the more useful result.** §16bc attributed the whole `A:\` receive
+penalty to `zchko()`'s create-and-delete pair. Leg EM puts that penalty at
+**5 s on a 211-entry root against 1 s on a 28-entry one**, and edit 25
+removes **1.0 s of the 5**. The other **4.0 s is upstream's `rcvfil()`
+doing FOUR INDEPENDENT NEGATIVE LOOKUPS of the same absent name** —
+`isdir` stat, `zchko`'s `open` → ENOENT, `zchki` stat, and `isdir` on the
+qualified path — each of which must scan the whole root to prove the name
+is not there. The syscall sequences on the two volumes are identical; only
+the per-operation cost differs. **It is not disk writes, and it is a
+report-upstream item with a hard number behind it.**
+
+The practical consequence, and it explains an unexplained older result:
+**receiving into a directory with few entries costs 1 s instead of 5**,
+which is why §16ba leg VF — receiving into a *subdirectory* of the volume
+leg VA stalled on — was ACKed at t+2.
+
+Items 2, 3, 6, 7, 8, 10, 11, 13, 14, 15, 16, 19, 22 and **23-26** are worth
+offering upstream regardless of this port. **23-26 and 14 and 15 are the
+ones to send first**: it is a plain
 defect, it is ~40 years old, and it disables two documented features in any
 configuration that turns TCP/IP off.
 2, 3, 7 and 8 are latent hazards on any small-memory target — and 7 and 8
@@ -2023,13 +2194,27 @@ conclusion survives the whole of this subsection.
 
 #### Closed: 39,062.50 bps is the ceiling, and the code now says so
 
-8 August 2026. The operator traced the serial sheet and closed the last
-avenue: **the only path to the 7201's RxCA is through the 74LS90 divider
-chain.** There is no fixed tap that bypasses the 8253, and no external clock
-from the connector that reaches the receiver. The LS153 at 15F selects among
-LS90 outputs, not around them.
+> **CORRECTED 22 August 2026 — the trace conclusion below is wrong, and the
+> operator has had to say so more than once.** The LS153's other inputs are
+> not LS90 taps: **the serial connector's RxC/TxC clock pins reach the 7201
+> through the same mux.** The select lines are VIA2 PA0/PA1 — the schematic
+> names them `_INT/EXTA` and `_INT/EXTB` (MAME `victor9k.cpp`,
+> `via2_pa_w()`, reproduces the names), and the boot ROM's "6522 FOR CLOCK
+> SELECTION" (basebt1.asm) sets them to INT at reset, which is why nothing
+> in the shipped software ever exercises EXT. An external clock bypasses
+> the 8253 entirely and keeps x16 oversampling, so rates above 39,062 bps
+> are reachable on this hardware with a clock supplied at the connector —
+> consistent with the operator's 115 Kb in 1990. The remaining unknowns are
+> the 7201's RxC/TxC input limits at its 2.5 MHz system clock (datasheet,
+> then bench) and which connector pins carry EXTA/EXTB (hardware reference).
+> **Everything below is the ceiling of the INTERNAL clock tree only.**
 
-That makes the ceiling arithmetic and final:
+8 August 2026. The operator traced the serial sheet and concluded —
+**wrongly, see the correction above** — that the only path to the 7201's
+RxCA is through the 74LS90 divider chain, with no external clock from the
+connector reaching the receiver.
+
+That makes the ceiling arithmetic and final **for the internal clock**:
 
 ```
 bps = 1,250,000 / (16 x count)      count >= 2 (8253 Mode 3)
@@ -2070,7 +2255,7 @@ byte-exact but cannot receive long packets on a free-running link. None of
 that was known before, and the first of them settled an argument that had
 run through four documents in two projects.
 
-#### Retractions from this sequence, because there were four
+#### Retractions from this sequence, because there were five
 
 1. **"x1 is synchronous-only."** Wrong. The datasheet permits x1 in async
    and says so in the RxC pin description. Asserted three times before the
@@ -2084,20 +2269,31 @@ run through four documents in two projects.
    operator caught it, the TD measurement then confirmed the derivation
    exactly, and the correction is the reason the model could be tested at
    all. **Keep measured and derived apart in the same table, always.**
+5. **"There is no external clock from the connector."** Wrong, retracted
+   22 August 2026 after the operator corrected it — again. The connector's
+   RxC/TxC pins reach the 7201 through the LS153 under VIA2's
+   `_INT/EXTA`/`_INT/EXTB` selects; the trace mistook the mux's unexamined
+   inputs for LS90 taps, and the error then hardened from "appear to be"
+   into "closed" without new evidence. The 39,062.50 bps ceiling is a fact
+   about the internal clock tree, not about the machine. An inference that
+   sharpens into a certainty between two paragraphs needs a measurement in
+   between.
 
 **A second finding from the same sheet, and nobody is using it.** The 8253's
 `OUT0`/`OUT1` do not reach the 7201 directly. They are *inputs* to an
 **LS153 dual 4-to-1 multiplexer at 15F**, whose `1Y` (pin 7) and `2Y` (pin
 9) drive `RXCA`/`TXCA` and `RXCB`/`TXCB`. The OEM's Table C-2 names them
-"MUX SERIAL A/B" for exactly this reason. The other mux inputs appear to be
-fixed taps off the LS90 chain. **Neither this port nor the FreeDOS driver
+"MUX SERIAL A/B" for exactly this reason. ~~The other mux inputs appear to
+be fixed taps off the LS90 chain.~~ **Corrected 22 August 2026: they are
+the EXTERNAL clock pins from the serial connector** — the select lines are
+VIA2 PA0/PA1, `_INT/EXTA`/`_INT/EXTB`, and the boot ROM parks them at INT.
+**Neither this port nor the FreeDOS driver
 programs those select lines**, so the mux sits in whatever state reset or
-the OEM driver leaves it. Two consequences worth carrying: there is a degree
-of freedom here that has never been touched, and if a fixed tap does feed
-one of those inputs it is the only route to a clock the 8253 cannot make —
+the OEM driver leaves it. Two consequences worth carrying: the EXT position
+is a real, untouched route to a clock the 8253 cannot make —
 which matters because the 8253 is in Mode 3 (`36H`) and modes 2 and 3 both
-require a count of at least 2, putting divisor 2 (39,062 bps) at the ceiling
-and making `B76800`'s divisor 1 unprogrammable.
+require a count of at least 2, putting divisor 2 (39,062 bps) at the
+internal-clock ceiling and making `B76800`'s divisor 1 unprogrammable.
 
 ### 11a. Configuration through the driver's IOCTL control block
 

@@ -6918,7 +6918,23 @@ snddir(spec) char * spec;
     nfiles = 0L;
     nbytes = (CK_OFF_T)0;
 
-    if (zfnqfp(name,CKMAXPATH,fnbuf))
+/*
+  Upstream edit 26 (PORTING.md section 8), unguarded.  This was
+
+      if (zfnqfp(name,CKMAXPATH,fnbuf))
+
+      debug(F110,"snddir name 2",name,0);
+
+  -- an "if" with no body, because debug() carries its own semicolon in
+  every build and expands to nothing under NODEBUG.  It compiles clean and
+  silent, and it discards zfnqfp()'s result: on the failure path fnbuf is
+  an uninitialised automatic, and eight lines below it is the %s of the
+  listing header, so the header prints stack contents and the sprintf runs
+  to whatever NUL it happens to find.  Fall back to the name we were given,
+  which is the least surprising thing the header can say.
+*/
+    if (!zfnqfp(name,CKMAXPATH,fnbuf))  /* If it can't be qualified, */
+      ckstrncpy(fnbuf,name,CKMAXPATH+1); /* show the name we were given. */
 
     debug(F110,"snddir name 2",name,0);
     p = name + strlen(name);            /* Move it to end of list */

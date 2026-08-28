@@ -1,0 +1,25 @@
+; Leg EC -- CONTROL on the SPARSE root.  Same as EA, one VOLUME over.
+;
+; BENCH take-file: there is no "set line" here.  ~/.kermrc names the adapter.
+; CHECK THAT IT NAMES THE ONE THAT IS PLUGGED IN.
+;
+;  Victor receives into D:\, which has 26 root entries against A:'s 184.
+;  CONTROL VALUE, SS16bc leg HN: 52.602 s host, elapsed 5500 cs,
+;  dec max=100 at #3, 39,564 wire bytes, 1 timeout / 1 resend, 622 cps.
+;
+;  RUN ED IMMEDIATELY AFTER THIS.
+;
+; READ IT WITH:
+;     python3 v9k/tools/pktstat.py --rxbytes <from STEPEC.OUT (written to A: on purpose)> s16bdEC.pkt
+; Residual -11 clean, +28 with a startup timeout.
+; cmp FIRST, then the counters.  A leg that is fast and wrong is the failure.
+
+set speed 9600
+set receive timeout 20
+set parity none
+set prefixing cautious
+set block 3
+set retry 30
+log packets s16bdEC.pkt
+send rcvec.dat
+statistics
