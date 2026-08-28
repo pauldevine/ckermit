@@ -1,0 +1,38 @@
+; Leg EK -- EDIT 26 REGRESSION.  Server mode; this side drives.
+;
+; BENCH take-file: there is no "set line" here.  ~/.kermrc names the adapter.
+; CHECK THAT IT NAMES THE ONE THAT IS PLUGGED IN.
+;
+;  REMOTE HELP IS FIRST, DELIBERATELY (SS16ax): before concluding a
+;  feature does not work, check that the thing asking for it can ask.
+;
+;  REMOTE DIRECTORY walks A:'s 184 root entries through snddir(), which
+;  is the function edit 26 touched.  SS16aw listed 157 entries in
+;  31.077 s with the debug log SHUT; this leg has no -d.
+;
+;  ">" REDIRECTS ARE REQUIRED, not stylistic: this bench's older client
+;  fell off an empty argument in remcfm() (SS16ax).  Use "remote pwd >
+;  file", never bare "remote pwd".
+;
+;  FINISH, not BYE -- BYE would stop the server and SS16ax leg SA lost
+;  its whole .OUT to a terminating command that killed the channel the
+;  leg reported through.
+;
+; READ IT WITH:
+;     python3 v9k/tools/pktstat.py --rxbytes <from STEPEK.OUT> s16bdEK.pkt
+; Residual -11 clean, +28 with a startup timeout.
+; cmp FIRST, then the counters.  A leg that is fast and wrong is the failure.
+
+set speed 9600
+set receive timeout 20
+set parity none
+set prefixing cautious
+set block 3
+set retry 30
+log packets s16bdEK.pkt
+remote help > s16bdEK-help.txt
+remote pwd > s16bdEK-pwd.txt
+remote directory > s16bdEK-dir.txt
+remote space > s16bdEK-space.txt
+finish
+statistics

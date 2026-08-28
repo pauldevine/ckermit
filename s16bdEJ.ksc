@@ -1,0 +1,31 @@
+; Leg EJ -- EDIT 23 WITNESS.  The only leg that can see edit 23.
+;
+; BENCH take-file: there is no "set line" here.  ~/.kermrc names the adapter.
+; CHECK THAT IT NAMES THE ONE THAT IS PLUGGED IN.
+;
+;  VICTOR RUNS D:\CKFNFD.EXE -- the KEEP_DEBUG build, md5 64ba06ed... --
+;  with --xonxoff.  CKFNF.EXE is NODEBUG and writes no log.
+;
+;  THE RESULT IS ONE LINE OF D:\DEBUG.LOG:
+;      v9k_ser_setflow crtscts/ixon [0] 1
+;  It has read 0 for this port's whole life.  Edit 23 must make it 1.
+;
+;  Small fixture on purpose: -d costs ~25 ms per received byte (SS16k),
+;  so this leg's clock is meaningless and is not a result.
+;  Behaviour must NOT change -- the driver reads upstream's "flow"
+;  variable, not these bits.
+;
+; READ IT WITH:
+;     python3 v9k/tools/pktstat.py --rxbytes <from STEPEJ.OUT> s16bdEJ.pkt
+; Residual -11 clean, +28 with a startup timeout.
+; cmp FIRST, then the counters.  A leg that is fast and wrong is the failure.
+
+set speed 9600
+set receive timeout 20
+set parity none
+set prefixing cautious
+set block 3
+set retry 30
+log packets s16bdEJ.pkt
+send rcvej.dat
+statistics

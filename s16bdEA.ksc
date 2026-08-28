@@ -1,0 +1,31 @@
+; Leg EA -- CONTROL for edit 25.  Host SENDS; the Victor receives into A:\.
+;
+; BENCH take-file: there is no "set line" here.  ~/.kermrc names the adapter.
+; CHECK THAT IT NAMES THE ONE THAT IS PLUGGED IN.
+;
+;  START THE VICTOR FIRST.  It takes about 40 s to load; wait for the
+;  drive to go quiet, then start this.
+;
+;  Binary under test: D:\CKBB.EXE, md5 c42c3598..., HEAD BEFORE edits 23-26.
+;  CONTROL VALUE, SS16bc leg HL: 57.006 s host, elapsed 5950 cs,
+;  dec max=450 at #3, 39,564 wire bytes, 1 timeout / 1 resend, 574 cps.
+;  A:'s root was 156 entries then and is 184 now, so EA may run SLOWER
+;  than HL.  That is exactly why HL's number is not reused (SS16al: the
+;  spread is the host, and cross-sitting comparisons are worthless).
+;
+;  RUN EB IMMEDIATELY AFTER THIS.
+;
+; READ IT WITH:
+;     python3 v9k/tools/pktstat.py --rxbytes <from STEPEA.OUT> s16bdEA.pkt
+; Residual -11 clean, +28 with a startup timeout.
+; cmp FIRST, then the counters.  A leg that is fast and wrong is the failure.
+
+set speed 9600
+set receive timeout 20
+set parity none
+set prefixing cautious
+set block 3
+set retry 30
+log packets s16bdEA.pkt
+send rcvea.dat
+statistics

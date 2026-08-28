@@ -1,0 +1,37 @@
+; Leg EG -- REGRESSION, send direction.  The Victor SENDS 32,768 bytes BY NAME.
+;
+; BENCH take-file: there is no "set line" here.  ~/.kermrc names the adapter.
+; CHECK THAT IT NAMES THE ONE THAT IS PLUGGED IN.
+;
+;  START THIS FIRST, THEN THE VICTOR.  The Victor is the initiator on a
+;  send leg and gives up if nothing answers its S packets.
+;
+;  Edit 16's exact range.  Control: SS16ai leg CC / SS16bc leg HB --
+;  37,557 wire bytes, 18 packets, 22.207 s, 1,475 cps.
+;  The received file lands here; cmp it against trans.dat (d94d2bed...).
+;
+; READ IT WITH:
+;     python3 v9k/tools/pktstat.py --rxbytes <from STEPEG.OUT> s16bdEG.pkt
+; Residual -11 clean, +28 with a startup timeout.
+; cmp FIRST, then the counters.  A leg that is fast and wrong is the failure.
+
+; THE 27 AUGUST HANG WAS THIS: 'receive <as-name>' makes C-Kermit ask
+; "Accept incoming file ...?" on stdin, and stdout is REDIRECTED, so the
+; prompt goes into the .host file and the run waits for a key nobody can
+; see.  NEXT_SESSION documents this trap for the VICTOR side; it is the
+; same defect on the HOST side.  ANY take-file whose stdout is redirected
+; must disable every interactive prompt.
+set receive confirm off
+set exit warning off
+set speed 38400
+set receive timeout 20
+set parity none
+set prefixing cautious
+set block 3
+set retry 30
+log packets s16bdEG.pkt
+; EXPLICIT FRESH DESTINATION.  A bare 'receive' takes the name from the
+; sender -- FIXTURE.DAT -> fixture.dat -- which already exists here and
+; is refused in the A-packet ACK.  That killed this leg on 26 August.
+receive goteg.dat
+statistics

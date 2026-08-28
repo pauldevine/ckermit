@@ -1,0 +1,17 @@
+; Leg EN -- EL's control: the same -d receive into A:, WITHOUT edits 23-26.
+; START THE VICTOR FIRST; wait for the drive to go quiet.
+; The CLOCK IS NOT A RESULT.  The result is the Victor's A:\DEBUG.LOG:
+;   - the gtimer jump between the F packet and its ACK (EL read +5 s)
+;   - and whether zchko's open/isatty/delete are present (they must be)
+
+set receive confirm off
+set exit warning off
+set speed 9600
+set receive timeout 20
+set parity none
+set prefixing cautious
+set block 3
+set retry 30
+log packets s16bdEN.pkt
+send rcven.dat
+statistics

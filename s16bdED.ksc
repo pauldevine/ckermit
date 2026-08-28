@@ -1,0 +1,28 @@
+; Leg ED -- THE NULL LEG.  Treatment binary on the SPARSE root.
+;
+; BENCH take-file: there is no "set line" here.  ~/.kermrc names the adapter.
+; CHECK THAT IT NAMES THE ONE THAT IS PLUGGED IN.
+;
+;  THIS LEG IS SUPPOSED TO BE NOTHING.  Edit 25 has almost no mechanism
+;  to act on 26 root entries, so ED should equal EC within the bench's own
+;  spread (0.4-1.3 s).
+;
+;  SPEND THE LEG THAT IS SUPPOSED TO BE NOTHING (SS16af).  +80 bytes of
+;  image moved and SS16w showed this machine is sensitive to code size.
+;  If ED is materially faster than EC, the saving in EB is not zchko and
+;  the whole reading is void.
+;
+; READ IT WITH:
+;     python3 v9k/tools/pktstat.py --rxbytes <from STEPED.OUT (written to A: on purpose)> s16bdED.pkt
+; Residual -11 clean, +28 with a startup timeout.
+; cmp FIRST, then the counters.  A leg that is fast and wrong is the failure.
+
+set speed 9600
+set receive timeout 20
+set parity none
+set prefixing cautious
+set block 3
+set retry 30
+log packets s16bdED.pkt
+send rcved.dat
+statistics
