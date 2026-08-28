@@ -1634,10 +1634,20 @@ v9k_portval_io(fd,wr,p) int fd; int wr; struct v9k_portval * p;
   B76800 is therefore gone from victor/sys/termios.h, and so are B57600 and
   B115200, which existed for one day as x1 entries.  x1 does reach those
   rates -- the NEC datasheet permits x1 in async, contrary to an earlier
-  claim in this file -- but it fails on a free-running link, and the only
-  path to the 7201's RxCA is through the LS90 chain, so there is no external
-  clock that would make it work.  PORTING.md SS11a0.  39,062.50 bps at
-  count 2 is the ceiling.
+  claim in this file -- but it fails on a free-running link.  PORTING.md
+  SS11a0.  39,062.50 bps at count 2 is the ceiling OF THE INTERNAL CLOCK
+  TREE.
+
+  CORRECTED 2026-08-22 (operator): an earlier revision here claimed the
+  LS90/8253 chain is the only path to RxCA and "there is no external clock
+  that would make it work".  Wrong, and the operator had said so before: the
+  serial connector's RxC/TxC clock pins reach the 7201 through the same
+  LS153 at 15F, selected by VIA2 PA0/PA1 (the schematic's _INT/EXTA and
+  _INT/EXTB; the boot ROM's "6522 FOR CLOCK SELECTION" writes them to INT at
+  reset).  An external clock bypasses the 8253, keeps x16 oversampling, and
+  is the route past 39,062 bps on this hardware.  This port does not program
+  the EXT position, so ITS table still ends at B38400 -- a statement about
+  this driver, not about the machine.
 
   The divisors themselves are now measured rather than argued -- CLK5 is
   5 MHz on a logic analyzer and reaches the 8253 through two LS90 halves,
@@ -1657,18 +1667,22 @@ static unsigned int v9k_divisor[] = {
 };
 
 /*
-  THE CLOCK MODE IS x16 AND THERE IS NOWHERE ELSE TO GO.  For one day this
-  file carried a v9k_clkbits[] table so that B57600/B76800/B115200 could use
-  the 7201's x1 mode and reach rates the 8253 cannot produce with a legal
-  Mode 3 count.  The bench killed it: x1 works, and a 32 KB send at x1
-  completed byte-exact, but x1 RECEIVE accepted 33% of 110-byte packets
-  where x16 was clean at a three times worse rate mismatch.  The operator
-  then traced the schematic and closed the last avenue -- the only path to
-  the 7201's RxCA is through the 74LS90 divider chain, so there is no fixed
-  tap and no external clock to be had.  PORTING.md SS11a0.
+  THE CLOCK MODE IS x16, AND ON THE INTERNAL CLOCK THERE IS NOWHERE ELSE TO
+  GO.  For one day this file carried a v9k_clkbits[] table so that
+  B57600/B76800/B115200 could use the 7201's x1 mode and reach rates the
+  8253 cannot produce with a legal Mode 3 count.  The bench killed it: x1
+  works, and a 32 KB send at x1 completed byte-exact, but x1 RECEIVE
+  accepted 33% of 110-byte packets where x16 was clean at a three times
+  worse rate mismatch.  PORTING.md SS11a0.
 
-  So: x16 always, count 2 at the top, 39,062.50 bps.  The table above ends
-  where the hardware does.
+  A previous revision then claimed the schematic "closed the last avenue" --
+  that no external clock reaches RxCA at all.  That was wrong (see the
+  CORRECTED note above the divisor table): the connector's clock pins reach
+  the 7201 through the LS153 under VIA2's _INT/EXTA and _INT/EXTB selects,
+  and an external x16 clock is a real route past 39,062 bps.  What is true
+  is narrower: this driver runs on the internal clock, and there x16 with
+  count 2 -- 39,062.50 bps -- is the top.  The table above ends where the
+  INTERNAL clock tree does, not where the machine does.
 
   The overrides survive because the experiment should stay repeatable
   without a broken rate in the table:
