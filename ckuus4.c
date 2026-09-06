@@ -301,6 +301,7 @@ extern int tcp_af;
 extern char * tcp_address;
 #ifdef CK_IPV6
 extern char * tcp_address6;
+extern int tcp_connect_timeout;
 #endif /* CK_IPV6 */
 #ifndef NOHTTP
 extern char * tcp_http_proxy;
@@ -1295,7 +1296,7 @@ initfloat() {
         y = i - 1;
         debug(F111,"initfloat 4.0/9.0",buf,y);
         fp_digits = (x < y) ? x : y;
-        if (fp_digits < sizeof(math_pi) - 1) {
+        if ((size_t)fp_digits < sizeof(math_pi) - 1) {
             math_pi[fp_digits+1] = NUL;
             math_e[fp_digits+1] = NUL;
         }
@@ -4550,7 +4551,8 @@ shoparc() {
 #ifdef TN_COMPORT
         if (istncomport()) {
             int modemstate;
-            char * oflow, * iflow = "", * parity, * stopsize, * signature;
+            char * oflow, * iflow = "", * parity, * stopsize;
+            CONST char * signature;
             int baud = tnc_get_baud();
 
             switch (tnc_get_oflow()) {
@@ -4619,7 +4621,7 @@ shoparc() {
               default:
                 stopsize = "(unknown)";
             }
-            signature = (char *)tnc_get_signature();
+            signature = tnc_get_signature();
             printf("\n  Signature            : %s\n",signature?signature:"");
             if (baud <= 0)
               printf("  Speed                : (unknown)\n");
@@ -4944,6 +4946,11 @@ shotcp(n) int n;
         if (++n > cmd_rows - 3) { if (!askmore()) { return(-1);} else {n = 0;}}
 #ifdef CK_IPV6
         printf(" address6: %s\n",tcp_address6 ? tcp_address6 : "(none)");
+        if (++n > cmd_rows - 3) { if (!askmore()) { return(-1);} else {n = 0;}}
+        if (tcp_connect_timeout > 0)
+          printf(" connect-timeout: %d\n",tcp_connect_timeout);
+        else
+          printf(" connect-timeout: 0 (unlimited)\n");
         if (++n > cmd_rows - 3) { if (!askmore()) { return(-1);} else {n = 0;}}
 #endif /* CK_IPV6 */
 #ifndef NOHTTP
@@ -11061,14 +11068,14 @@ fneval(fn,argp,argn,xp) char *fn, *argp[]; int argn; char * xp;
         while (1) {
             if (!eof1) {
                 c1 = getc(fp1);
-                if (c1 == (unsigned int)EOF) {
+                if (c1 == EOF) {
                     eof1++;
                     fclose(fp1);
                 }
             }
             if (!eof2) {
                 c2 = getc(fp2);
-                if (c2 == (unsigned int)EOF) {
+                if (c2 == EOF) {
                     eof2++;
                     fclose(fp2);
                 }
@@ -12927,14 +12934,14 @@ fneval(fn,argp,argn,xp) char *fn, *argp[]; int argn; char * xp;
             while (!eof) {              /* Loop for each marker */
                 while (!eof) {          /* Find next marker */
                     c = getc(fp);
-                    if (c == (unsigned int)EOF) {
+                    if (c == EOF) {
                         eof++;
                         break;
                     }
                     if (c == 0xff) {
                         buf[0] = c;
                         c = getc(fp);
-                        if (c == (unsigned int)EOF) {
+                        if (c == EOF) {
                             eof++;
                             break;
                         }
@@ -13610,7 +13617,7 @@ char *                                  /* Evaluate builtin variable */
       case VN_FULLVER:                  /* Full version number (edit 400) */
       {
           extern char *ck_s_ver, *ck_s_edit, *ck_s_test, *ck_s_tver;
-          if (x > strlen(ck_s_test)) {
+          if ((size_t)x > strlen(ck_s_test)) {
               sprintf(vvbuf,"%s.%s %s.%s",
                       ck_s_ver, ck_s_edit, ck_s_test, ck_s_tver); /* SAFE */
           } else {
@@ -15532,8 +15539,8 @@ char *                                  /* Evaluate builtin variable */
 #ifdef TN_COMPORT
     switch (y) {
       case VN_TNC_SIG: {
-        p = (char *) tnc_get_signature();
-        ckstrncpy(vvbuf,p ? p : "",VVBUFL);
+        CONST char * sig = tnc_get_signature();
+        ckstrncpy(vvbuf,sig ? sig : "",VVBUFL);
         return(vvbuf);
       }
     }

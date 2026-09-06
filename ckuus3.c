@@ -73,8 +73,8 @@ int settitle();          /* ckuus7.c */
 int setdialer();         /* ckuus7.c */
 void os2debugoff();      /* ckoco3.c */
 int msktock(int);        /* ckokey.c */
-int popup_readpass(int,char*,char*,char*,int,int);  /* ckocon.c */
-int popup_readtext(int,char*,char*,char*,int,int);  /* ckocon.c */
+int popup_readpass(int,char*,const char*,char*,int,int); /* ckocon.c */
+int popup_readtext(int,char*,const char*,char*,int,int); /* ckocon.c */
 #ifdef NETDLL
 int netdll_load(char *); /* ckonet.c */
 #endif /* NETDLL */
@@ -10535,6 +10535,19 @@ necessary DLLs did not load.  Use SHOW NETWORK to check network status.\n");
               tcp_af = z;
               return(success = 1);
           }
+          case XYTCP_CONNECT_TIMEOUT: {
+              extern int tcp_connect_timeout;
+              x = cmnum("connect() timeout, seconds, or 0 for unlimited",
+                         ckitoa(tcp_connect_timeout),10,&z,xxstring);
+              if (x < 0) return(x);
+              if ((x = cmcfm()) < 0) return(x);
+              if (z < 0) {
+                  printf("?Timeout may not be negative\n");
+                  return(success = 0);
+              }
+              tcp_connect_timeout = z;
+              return(success = 1);
+          }
 #endif /* CK_IPV6 */
 
           default:
@@ -13980,7 +13993,7 @@ case XYDEBU:                            /* SET DEBUG { on, off, session } */
                           ssl_ctx = (SSL_CTX *)
 /* Changed in 9.0.305 Alpha.03 from NetBSD 'rhialto' */
 /* from: SSL_CTX_new((SSL_METHOD *)TLSv1_method()); to:...*/
-                            SSL_CTX_new((SSL_METHOD *)SSLv23_method());
+                            SSL_CTX_new(SSLv23_method());
                           if (ssl_ctx != NULL)
                             ssl_con= (SSL *) SSL_new(ssl_ctx);
                       }
