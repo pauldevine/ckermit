@@ -1784,16 +1784,25 @@ deadline_signal(handler) SIGTYP (*handler)(int);
   Upstream edit 27 (PORTING.md section 8), guarded.  Upstream's 11.0.509
   jump-reduction refactor (commit 4521c6b) replaced every plain
   signal(SIGALRM,handler) call site in this file with deadline_signal(),
-  whose only body called sigaction()/sigemptyset() unconditionally --
-  unlike every other POSIX-only construct in this file (e.g. the
-  sigprocmask() use below), which is gated behind CK_POSIX_SIG.  A
-  platform with no <signal.h> sigaction(), such as this port's Open
-  Watcom DOS build, fails to compile ckutio.c at all.  The #else arm
-  restores the plain signal() call the refactor removed, so a non-
-  CK_POSIX_SIG platform gets back exactly its pre-refactor behaviour and
-  every CK_POSIX_SIG platform is unaffected.
+  whose only body calls sigaction()/sigemptyset() unconditionally, with
+  no platform guard at all -- unlike CK_POSIX_SIG, which selects between
+  siglongjmp()/longjmp() and enables the sigprocmask() masking below, but
+  is NOT a "does this platform have sigaction()" flag: the makefile sets
+  it only for a handful of Linux targets, and every BSD/macOS target that
+  has always had sigaction() never defines it.  Gating this on
+  CK_POSIX_SIG the first time round therefore did the opposite of what
+  was intended -- it left DOS uncompilable AND silently downgraded every
+  BSD/macOS build to plain signal(), which does not clear SA_RESTART the
+  way sigaction() does, so a SIGALRM no longer interrupts a blocking
+  read() -- caught by CI: freebsd/netbsd/openbsd/macos all hung for 60s
+  in the wermit pty tests, while the one target that DOES define
+  CK_POSIX_SIG (Linux) passed.  VICTOR9K is the only platform in this
+  tree with no <signal.h> sigaction() at all, so it is the gate: the
+  #else arm restores the plain signal() call the refactor removed, and
+  every non-VICTOR9K platform -- Linux, BSD, macOS, CK_POSIX_SIG or not --
+  keeps the exact unconditional sigaction() body upstream shipped.
 */
-#ifdef CK_POSIX_SIG
+#ifndef VICTOR9K
     struct sigaction sa, oa;
     memset((char *)&sa, 0, sizeof(sa));
     sa.sa_handler = handler;
@@ -1802,9 +1811,9 @@ deadline_signal(handler) SIGTYP (*handler)(int);
     if (sigaction(SIGALRM, &sa, &oa) < 0)
       return SIG_ERR;
     return oa.sa_handler;
-#else /* CK_POSIX_SIG */
+#else /* VICTOR9K */
     return signal(SIGALRM, handler);
-#endif /* CK_POSIX_SIG */
+#endif /* VICTOR9K */
 }
 
 /*

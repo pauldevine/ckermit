@@ -1200,11 +1200,16 @@ socket is single-use, so start `socat` first and never probe the port.
    **27 is guarded, back to that pattern**: merging upstream 11.0.509
    (§16bh) brought in a jump-reduction refactor whose new
    `deadline_signal()` called `sigaction()` unconditionally, with no
-   `CK_POSIX_SIG` guard unlike every other POSIX-only construct in the
-   same file, and Open Watcom's DOS libc has no `sigaction()` at all —
-   `ckutio.c` failed to compile with no guard. The `#else` arm restores
+   platform guard at all, and Open Watcom's DOS libc has no `sigaction()`
+   at all — `ckutio.c` failed to compile with no guard. **The first
+   version gated on `CK_POSIX_SIG` and CI on the PR caught that it was
+   wrong**: that macro is Linux-only in the makefile, not a "has
+   `sigaction()`" flag, so it also silently downgraded every BSD/macOS
+   build to plain `signal()` and broke `SIGALRM`-interrupts-a-read —
+   four of five CI jobs hung for 60 s. Gated on `VICTOR9K` instead, the
+   only platform actually missing `sigaction()`: the `#else` arm restores
    the plain `signal(SIGALRM,handler)` call the refactor deleted, a pure
-   no-op for every platform that already defines `CK_POSIX_SIG`.
+   no-op for every other platform.
    If you think you need a twenty-eighth, say so
    explicitly rather than doing it quietly — the seventh through
    twenty-seventh were all agreed that way. Say it again if
@@ -1276,7 +1281,7 @@ socket is single-use, so start `socat` first and never probe the port.
 | `v9k/tools/` | standing instruments, not disposable: `mzsize.py` (**hard rule 4 requires it**), `pktstat.py`, `mapoffset.py`, `ctswatch.py` (host-side `TIOCMGET`, §16am — the modem lines read without Kermit in the path), `wirenoise.py` (§16av — a drop-in replacement for the harness `socat` line that corrupts the wire on purpose, keyed on byte offset so two arms of an A/B meet the same noise), `hybridfat.py` (§16az — `info`/`list`/`put`/`get`/`del` on the FAT16 volume of a **Victor 9000 hybrid FreeDOS image**, which neither mtools nor `vtg_image_util` can read; it takes the volume base from the BPB's own `hidden_sectors` rather than assuming 129) |
 | `v9k/proofs/` | host programs §8 cites as the correctness argument for a shipped edit — `vcrc16.c` (edit 17), `vttinl.c` (edit 18), `vznewn.c` (edit 21) and `vburst.c` (the ISR burst detector). `make -C v9k/proofs` builds *and runs* them. **`vznewn.c` is the one to copy**: its Makefile rule EXTRACTS `v9k_backupname()` out of `ckvictor.c` at build time instead of transcribing it, so it is the only one of these that cannot drift from what ships |
 | `v9k/probes/` | genuine one-shots, kept so the answer stays checkable; build line at the top of each |
-| `ckutio.c` | serial, console, timers — **stock upstream except upstream edits 18, 23, 24 and 27**. 18 is the `VICTOR9K` bulk-read arm at the bottom of `ttinl()`'s per-byte loop (§16aq): purely additive, `--nobulk` disables it at run time and `v9k: bulk sel= n=` says which arm ran. **23 and 24 are unguarded** — 23 makes `ttpkt()`'s `TESTING234` block preserve `IXON|IXOFF` instead of clearing them four lines before `tcsetattr()`, 24 hoists `ttoc()`'s only `tcflow(TCOON)` out of a `debug()` argument (moved to `ttoc()`'s `ttoc_failed` path by the 11.0.509 merge, §16bh). Both were found by §16aj and carried as report-only for five sections. **27 is guarded** (`#ifdef CK_POSIX_SIG`): restores the plain `signal(SIGALRM,handler)` call upstream's jump-reduction refactor replaced with an unconditional `sigaction()`, which Open Watcom's DOS libc does not have (§16bh) |
+| `ckutio.c` | serial, console, timers — **stock upstream except upstream edits 18, 23, 24 and 27**. 18 is the `VICTOR9K` bulk-read arm at the bottom of `ttinl()`'s per-byte loop (§16aq): purely additive, `--nobulk` disables it at run time and `v9k: bulk sel= n=` says which arm ran. **23 and 24 are unguarded** — 23 makes `ttpkt()`'s `TESTING234` block preserve `IXON|IXOFF` instead of clearing them four lines before `tcsetattr()`, 24 hoists `ttoc()`'s only `tcflow(TCOON)` out of a `debug()` argument (moved to `ttoc()`'s `ttoc_failed` path by the 11.0.509 merge, §16bh). Both were found by §16aj and carried as report-only for five sections. **27 is guarded** (`#ifndef VICTOR9K` — not `CK_POSIX_SIG`, which is Linux-only and broke BSD/macOS CI the first time): restores the plain `signal(SIGALRM,handler)` call upstream's jump-reduction refactor replaced with an unconditional `sigaction()`, which Open Watcom's DOS libc does not have (§16bh) |
 | `ckufio.c` | file system — **stock upstream except upstream edits 19, 21 and 25**. 19 is one declaration in `zfcdat()`: `unsigned int mtime` was truncating a `time_t` and dating the whole volume to 1970 (§16ax). 21 is a purely additive `VICTOR9K` arm at the top of `znewn()` calling `v9k_backupname()`, so BACKUP and RENAME produce a name FAT can hold (§16bb). **25 is unguarded**: `zchko()` no longer opens with `O_CREAT` and no longer `zdelet()`s, because only an existing file can be a terminal and creating one to ask `isatty()` cost **4.4 s per received file** on a FAT root (§16bc) |
 | `ckc*.c` | protocol core — do not touch. **The exceptions are edits 17, 18, 20, 22 and 26** — 26 is one unguarded line in `ckcfns.c`'s `snddir()`, giving an `if` with no body a body so a failed `zfnqfp()` cannot leave `fnbuf` uninitialised under the listing header's `sprintf` (§16aw) — 22 is one guard in `ckcfn3.c`'s `gattr()`, making `case 'M'` live so a MAIL disposition is refused in the A-packet ACK the way PRINT already is (§16bb) — and 20 is the only one that adds a capability: a `VICTOR9K` `sndspace()` in `ckcfns.c` and the arm in `ckcpro.w` that calls it, so `REMOTE SPACE` is answered from INT 21h rather than from a `df` that `NOPUSH` deleted (§16ax) |
 

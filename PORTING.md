@@ -1086,26 +1086,37 @@ the more serious of the pair, because it makes an upstream configuration
 switch (`NOFLOAT`) uncompilable everywhere rather than only under one
 combination of flags.
 
-27. **`ckutio.c`** — `deadline_signal()` gated behind `#ifdef CK_POSIX_SIG`,
+27. **`ckutio.c`** — `deadline_signal()` gated behind `#ifndef VICTOR9K`,
     restoring the plain `signal(SIGALRM,handler)` call in the `#else` arm.
     Found merging upstream 11.0.509 (§16bh): John Goerzen's jump-reduction
     refactor (`4521c6b`, "Refactor to reduce siglongjmp() usage, eliminating
     races") replaced every call site's `signal(SIGALRM,timerh)` with
     `deadline_signal()`, whose only body called `sigaction()`/
-    `sigemptyset()` unconditionally — unlike every other POSIX-only
-    construct in the same file (e.g. the `sigprocmask()` pair a few hundred
-    lines below it, already gated on `CK_POSIX_SIG`). Open Watcom's DOS
-    libc has no `<signal.h>` `sigaction()`, so `ckutio.c` failed to compile
-    at all with no guard.
+    `sigemptyset()` unconditionally, with **no platform guard of any
+    kind**. Open Watcom's DOS libc has no `<signal.h>` `sigaction()`, so
+    `ckutio.c` failed to compile at all.
 
-    **Guarded, and it is a pure restoration.** `ckvictor.h` defines
-    `POSIX` but not `CK_POSIX_SIG` — deliberately, per §16aj, since none of
-    this file's existing `CK_POSIX_SIG` machinery (signal masking around a
-    read, `siglongjmp` vs `longjmp`) has ever needed to be true for a
-    single-tasking DOS target — so the `#else` arm is exactly the call the
-    refactor deleted, restoring this port's exact pre-refactor behaviour.
-    Every platform that already defines `CK_POSIX_SIG` takes the unchanged
-    `sigaction()` body and cannot see this edit at all.
+    **First guarded on `CK_POSIX_SIG` and that was wrong** — caught by
+    CI on the PR, not by reading. `CK_POSIX_SIG` selects `siglongjmp()`
+    vs `longjmp()` and enables the `sigprocmask()` masking a few hundred
+    lines below, but it is not a "does this platform have `sigaction()`"
+    flag: the makefile sets it only for a handful of Linux targets, and
+    every BSD/macOS target — which has always had `sigaction()` — never
+    defines it. Gating on it therefore left DOS uncompilable **and**
+    silently downgraded every non-Linux Unix build to plain `signal()`,
+    which does not clear `SA_RESTART` the way `sigaction()` does, so a
+    `SIGALRM` no longer interrupted a blocking `read()`: freebsd,
+    netbsd, openbsd and macos CI all hung for 60 s per `wermit` pty test,
+    while the one target that *does* define `CK_POSIX_SIG` (Linux)
+    passed and hid the defect.
+
+    **Guarded on `VICTOR9K` instead, and it is a pure restoration.**
+    `VICTOR9K` is the only platform in this tree with no POSIX
+    `sigaction()` at all, so it is the correct gate: the `#else` arm is
+    exactly the call the refactor deleted, restoring this port's exact
+    pre-refactor behaviour, and every non-`VICTOR9K` platform — Linux,
+    BSD, macOS, `CK_POSIX_SIG` or not — keeps the unchanged, unconditional
+    `sigaction()` body upstream shipped and cannot see this edit at all.
 
 ---
 
@@ -13341,18 +13352,35 @@ it: same fix, same explanatory comment, applied to the surviving
 **The build did not merely conflict, it failed to compile, and that is
 edit 27.** `deadline_signal()` — the function the jump-reduction refactor
 introduces to replace every `signal(SIGALRM,handler)` call site — has a
-single, unconditional body calling `sigaction()`/`sigemptyset()`. Every
-other POSIX-only construct already in this file is gated on
-`CK_POSIX_SIG` (the `sigprocmask()` pair a few hundred lines below it is
-the example to compare against), but this new function was not, and Open
-Watcom's DOS libc has no `<signal.h>` `sigaction()` at all — `wcc` failed
-on `struct sigaction` itself ("Expression has incomplete type") before it
-could even reach the members. §8 item 27 gates the `sigaction()` body
-behind `#ifdef CK_POSIX_SIG` and puts the plain `signal()` call the
-refactor deleted in the `#else` arm — the exact call every site in this
-file made until `4521c6b`, so a non-`CK_POSIX_SIG` platform gets back its
-pre-refactor behaviour exactly, and nothing changes for a platform that
-defines `CK_POSIX_SIG`.
+single, unconditional body calling `sigaction()`/`sigemptyset()`, with no
+platform guard of any kind. Open Watcom's DOS libc has no `<signal.h>`
+`sigaction()` at all — `wcc` failed on `struct sigaction` itself
+("Expression has incomplete type") before it could even reach the
+members.
+
+**The first version of edit 27 gated on `CK_POSIX_SIG` and CI on the PR
+caught that it was wrong** — four of five build-and-test jobs
+(freebsd, netbsd, openbsd, macos) failed, every one with `wermit` pty
+tests hanging 60 s, while the fifth (ubuntu) passed. `CK_POSIX_SIG`
+selects `siglongjmp()` vs `longjmp()` and enables the `sigprocmask()`
+masking a few hundred lines below (the construct that reading led this
+section to compare it against), but it is not a "does this platform have
+`sigaction()`" flag: the makefile sets it only for a handful of Linux
+targets, and every BSD/macOS target — which has always had
+`sigaction()` — never defines it. Gating on it left DOS uncompilable
+**and** silently downgraded every non-Linux Unix build to plain
+`signal()`, which does not clear `SA_RESTART` the way `sigaction()`
+does, so a `SIGALRM` stopped interrupting a blocking `read()` — the
+CI hangs. The one target that happens to define `CK_POSIX_SIG` (Linux)
+passed and very nearly hid the defect from ever reaching a review.
+
+§8 item 27 now gates the `sigaction()` body behind `#ifndef VICTOR9K`
+and puts the plain `signal()` call the refactor deleted in the `#else`
+arm. `VICTOR9K` is the only platform in this tree with no POSIX
+`sigaction()`, so it is the correct gate: a non-`VICTOR9K` platform gets
+back its pre-refactor behaviour exactly, and every other platform —
+Linux, BSD, macOS, `CK_POSIX_SIG` or not — keeps the unmodified,
+unconditional `sigaction()` body upstream shipped.
 
 **All 24 modules build, and the warning count is the same nineteen as
 before the merge** (`ckvictor.c` at zero, matching CLAUDE.md's running
@@ -13435,3 +13463,17 @@ non-conflicting hunk had already made unreachable. The conflict marker
 was the easy 10% of the problem; the other 90% — that the fix needed to
 move house — was only visible by reading what upstream did to the
 function as a whole, not by reading the diff.
+
+**And a guard's name is a claim about what it means, and the claim can be
+wrong even when the code compiles and links on the one platform being
+built.** `CK_POSIX_SIG` reads as "this platform is POSIX enough to have
+signal-related POSIX calls," which made it look like the right test for
+"does this platform have `sigaction()`" — it is neither what the macro is
+for nor what the makefile uses it to mean, and this port's own build
+(Open Watcom, one platform, no CI matrix) could not have shown the
+mistake: `VICTOR9K` and `CK_POSIX_SIG` are both false there, so both
+guards compile to the identical `#else` arm. **The five-platform CI
+matrix is the instrument that this port's own toolchain cannot be** —
+one Linux pass next to four BSD/macOS failures is the shape of "the
+guard is testing the wrong thing," and it would not have been visible
+from a single green build in either direction.
