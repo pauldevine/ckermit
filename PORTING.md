@@ -13362,12 +13362,64 @@ that §16bd's edits-23-26 sitting measured and is corrected here). DGROUP
 (239K) at load, smallest Victor 384K — unchanged from the 11.0.508 figures
 in every respect that matters: this merge cost 27 upstream commits'
 worth of code and one new upstream edit, and zero bytes anyone would
-notice. **Not run on MAME or the machine** — nothing in 11.0.509 touches
-a code path this port's own edits or hardware sittings have exercised
-(TCP is compiled out under `NOTCPIP`, and the jump-reduction/warn-reduction
-work is either a straight structural swap this section traced by hand or a
-warning fix with no behavioural change), so the next hardware or MAME
-sitting is the confirmation rather than a dedicated one.
+notice. **Confirmed on the machine the same day — see below; the
+paragraph that used to stand here said "not run on MAME or the machine"
+and is superseded.**
+
+### Confirmed on real hardware, same day, no MAME leg needed
+
+`HW_TEST_16bh.md` proposed three MAME legs (HA/HC/HE). The operator ran
+real hardware instead and got a stronger result faster — direct commands
+at the `A:\` prompt rather than the `.BAT`-file legs the sheet specified,
+which is a fine substitution since CONNECT has no non-interactive form
+anyway.
+
+**Receive, `CKERMITW -l /dev/seriala -b 38400 -r`, host sends: works.**
+**Send, `CKERMITW -l /dev/seriala -b 38400 -s tranny.dat`, Victor sends:
+works**, and the operator judged (correctly) that repeating the receive
+leg a second time to satisfy the sheet's letter would have tested nothing
+new. Byte-exactness is measured, not assumed: `tranny.dat` is a copy of
+`TRANS.DAT` round-tripped Mac → Victor → Mac, and the returned copy's
+`md5` matches the original on the Mac. That confirms both directions'
+`deadline_signal()` call sites at once — install, arm, and cleanly disarm
+under real DOS, real time, real interrupts, not MAME's.
+
+**HE, run against a freshly built `CKICP.EXE` — the actual answer to
+"which program lets me test the escape-and-reconnect round trip".** The
+`CKICP.EXE` staged on the image was a pre-merge build (462,764 bytes, from
+the §16be CONNECT sitting); `CKERMITW.EXE -c` enters CONNECT directly but
+`<esc> C` **exits the program** rather than returning to a prompt, so it
+cannot run the reconnect half of HE at all. Rebuilt from HEAD
+(`XFLAGS=-dKEEP_ICP ZT=-zt2048`): **464,196 bytes, DGROUP 59,648/65,536
+(91%), needs 456,500 (445K), smallest Victor 640K** — +1,432 bytes over
+the stale build, same machine class. Staged over the old one, md5
+round-tripped clean.
+
+On the Victor: `CKICP` → `set line /dev/seriala` → `set baud 38400` →
+`connect`. Typed a sentence each way, both echoed on the far screen.
+`<esc>` back to `C-Kermit>` (confirmed — this is the behaviour `-c` does
+not have), `receive`, host sent a file, transfer completed, `connect`
+again, typing both ways still worked. **This is item 18's whole reason for
+existing — connect → escape → RECEIVE → reconnect — reproduced on the
+merged build**, and it is the first time `ttoc()`'s post-refactor
+`ttoc_failed` structure (with edit 24 in its new home) has run outside a
+compiler. The file transfer inside HE was watched complete but not
+independently `md5`-checked; the direct `-r`/`-s` pair above already
+established the underlying transfer path is byte-exact, so this gap is
+about confirming CONNECT's own read/write loop rather than the protocol
+engine.
+
+**What HA/HC's stale `.BAT` files did instead, for the record.** Before
+the operator switched to typing commands directly, `STEPHA.BAT`/
+`STEPHC.BAT` were run unmodified and turned out to invoke `D:\CKBB.EXE` —
+a 231,172-byte binary staged for §16bc's flow-control null-leg pair, not
+`CKERMITW.EXE`. Both completed clean (`rxlost=0 rxfull=0` at 38400 on real
+silicon; `RCVHC.DAT` is byte-exact `TRANS.DAT`), and `s16bcHA.ksc` sent a
+731-byte leftover fixture rather than the 32 KB one its own header comment
+describes. Harmless — it reproduced an already-closed §16bc result — but
+it tested nothing about this merge, and the lesson is procedural: a
+same-lettered `.BAT` file surviving from an old sitting is not the same
+thing as a run sheet for a new one.
 
 ### The method point
 
