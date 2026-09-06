@@ -4832,8 +4832,10 @@ _PROTOTYP( VOID conbgt, (int) );
                     if (what & W_SEND) conol("Would Send: "); /* Action */
                     else if (what & W_RECV) conol("Would Receive: ");
                     conol(fbuf);
-                    if (*abuf) conol(" => "); conol(abuf); /* Names */
-                    if (*a2buf) conol(" => "); conol(a2buf); /* Names */
+                    if (*abuf) conol(" => ");
+                    conol(abuf);              /* Names */
+                    if (*a2buf) conol(" => ");
+                    conol(a2buf);              /* Names */
                     *fbuf = NUL; *abuf = NUL; *a2buf = NUL;
                 }
                 conoll(" [simulated]");
@@ -4862,8 +4864,10 @@ _PROTOTYP( VOID conbgt, (int) );
                     if (what & W_SEND) conol("Sending: "); /* Action */
                     else if (what & W_RECV) conol("Receiving: ");
                     conol(fbuf);
-                    if (*abuf) conol(" => "); conol(abuf); /* Names */
-                    if (*a2buf) conol(" => "); conol(a2buf); /* Names */
+                    if (*abuf) conol(" => ");
+                    conol(abuf);              /* Names */
+                    if (*a2buf) conol(" => ");
+                    conol(a2buf);              /* Names */
                     *fbuf = NUL; *abuf = NUL; *a2buf = NUL;
                 }
                 conoll(" [skipped]");
@@ -4907,8 +4911,10 @@ _PROTOTYP( VOID conbgt, (int) );
                     if (what & W_SEND) conol("Sending: "); /* Action */
                     else if (what & W_RECV) conol("Receiving: ");
                     conol(fbuf);
-                    if (*abuf) conol(" => "); conol(abuf);      /* Names */
-                    if (*a2buf) conol(" => "); conol(a2buf);    /* Names */
+                    if (*abuf) conol(" => ");
+                    conol(abuf);              /* Names */
+                    if (*a2buf) conol(" => ");
+                    conol(a2buf);              /* Names */
                     *fbuf = NUL; *abuf = NUL; *a2buf = NUL;
                     conoll("");
                 }
@@ -5585,7 +5591,7 @@ static char *dbptr = (char *)0;
 
 int
 #ifdef CK_ANSIC
-dodebug(int f, char *s1, char *s2, CK_OFF_T n)
+dodebug(int f, const char *s1, const char *s2, CK_OFF_T n)
 #else
 dodebug(f,s1,s2,n) int f; char *s1, *s2; CK_OFF_T n;
 #endif /* CK_ANSIC */
@@ -5777,7 +5783,8 @@ dodebug(f,s1,s2,n) int f; char *s1, *s2; CK_OFF_T n;
 */
       case F011: {
           int i, j, contd = 0;
-          char * p = s2, *pbuf = NULL;  /* p = source pointer */
+          const char * p = s2;          /* p = source pointer */
+          char *pbuf = NULL;
           int m;                        /* pbuf = destination pointer */
 
           if (f == F011) {
@@ -10322,7 +10329,7 @@ getslot() {                             /* Find a free slot for us */
     /* Trim stale records from end */
 
 #ifndef NOFTRUNCATE
-    if (i > dblastused+DB_RECL) {
+    if ((unsigned long)i > dblastused+DB_RECL) {
         debug(F101,"getslot truncating at","",DB_HDRL+dblastused+DB_RECL);
 #ifdef COHERENT
         x = chsize(fileno(dbfp),DB_HDRL+dblastused+DB_RECL);

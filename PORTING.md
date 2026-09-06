@@ -316,13 +316,13 @@ Streaming is **not** network-coupled — it is negotiated protocol behaviour in
 
 ## 8. Upstream changes made
 
-Twenty-six edits, nineteen of them small, guarded and invisible to every
-other platform. **Edits 14, 15, 16 and 23-26 are the exceptions and are
-flagged as such**: 14 repairs a mis-nested `#endif` in `ckcmai.c`, and a
-preprocessor conditional cannot itself be made conditional; 15 and 16 fix a
-16-bit truncation each, and both are provable no-ops wherever `int` is 32
-bits, so guarding them would mean knowingly shipping the broken form
-everywhere else.
+Twenty-seven edits, nineteen of the first twenty-six small, guarded and
+invisible to every other platform. **Edits 14, 15, 16 and 23-26 are the
+exceptions and are flagged as such**: 14 repairs a mis-nested `#endif` in
+`ckcmai.c`, and a preprocessor conditional cannot itself be made
+conditional; 15 and 16 fix a 16-bit truncation each, and both are provable
+no-ops wherever `int` is 32 bits, so guarding them would mean knowingly
+shipping the broken form everywhere else.
 
 **Edits 23-26 are a fourth kind and were agreed as a group on 25 August
 2026**: they are the four defects this port had FOUND AND DELIBERATELY NOT
@@ -1085,6 +1085,38 @@ in `ckcfnp.h` that is not guarded the way its own definition is — and 10 is
 the more serious of the pair, because it makes an upstream configuration
 switch (`NOFLOAT`) uncompilable everywhere rather than only under one
 combination of flags.
+
+27. **`ckutio.c`** — `deadline_signal()` gated behind `#ifndef VICTOR9K`,
+    restoring the plain `signal(SIGALRM,handler)` call in the `#else` arm.
+    Found merging upstream 11.0.509 (§16bh): John Goerzen's jump-reduction
+    refactor (`4521c6b`, "Refactor to reduce siglongjmp() usage, eliminating
+    races") replaced every call site's `signal(SIGALRM,timerh)` with
+    `deadline_signal()`, whose only body called `sigaction()`/
+    `sigemptyset()` unconditionally, with **no platform guard of any
+    kind**. Open Watcom's DOS libc has no `<signal.h>` `sigaction()`, so
+    `ckutio.c` failed to compile at all.
+
+    **First guarded on `CK_POSIX_SIG` and that was wrong** — caught by
+    CI on the PR, not by reading. `CK_POSIX_SIG` selects `siglongjmp()`
+    vs `longjmp()` and enables the `sigprocmask()` masking a few hundred
+    lines below, but it is not a "does this platform have `sigaction()`"
+    flag: the makefile sets it only for a handful of Linux targets, and
+    every BSD/macOS target — which has always had `sigaction()` — never
+    defines it. Gating on it therefore left DOS uncompilable **and**
+    silently downgraded every non-Linux Unix build to plain `signal()`,
+    which does not clear `SA_RESTART` the way `sigaction()` does, so a
+    `SIGALRM` no longer interrupted a blocking `read()`: freebsd,
+    netbsd, openbsd and macos CI all hung for 60 s per `wermit` pty test,
+    while the one target that *does* define `CK_POSIX_SIG` (Linux)
+    passed and hid the defect.
+
+    **Guarded on `VICTOR9K` instead, and it is a pure restoration.**
+    `VICTOR9K` is the only platform in this tree with no POSIX
+    `sigaction()` at all, so it is the correct gate: the `#else` arm is
+    exactly the call the refactor deleted, restoring this port's exact
+    pre-refactor behaviour, and every non-`VICTOR9K` platform — Linux,
+    BSD, macOS, `CK_POSIX_SIG` or not — keeps the unchanged, unconditional
+    `sigaction()` body upstream shipped and cannot see this edit at all.
 
 ---
 
@@ -13265,7 +13297,8 @@ this pin.** Three facts to keep separate:
 - **`HUPTIME` cannot be lengthened from the command line** for an
   LED-visible test: it is a bare `#define HUPTIME 500` at `ckutio.c:3860`
   and `-dHUPTIME=5000` loses to it (Watcom W140, measured). Guarding it
-  would be a twenty-seventh upstream edit; a port-side hold behind an
+  would be an upstream edit (§16bh took the next number, 27, for something
+  unrelated, so this one would be 28 if pursued); a port-side hold behind an
   `XFLAGS` switch in the B0 arm, or a `v9k/probes/` one-shot that drops DTR
   through the IOCTL for 5 s and then through a direct WR5 write for 5 s,
   would answer it with the LED cable and no scope — and the probe form also
@@ -13292,3 +13325,155 @@ DTR). Tier 2 was retired by §16bf. What remains is `CK_AUTODL` (auto-start a
 receive when a Kermit S packet arrives mid-CONNECT — OFF in both builds,
 confirmed by `wcc -pl`), the collision-prompt cosmetic and its REPLACE
 question, and the DTR reading above.
+
+## 16bh. Upstream 11.0.509 merged, and it cost a twenty-seventh edit
+
+Twenty-five upstream commits merged with `git merge upstream/main`
+(`c77cec3`): the 11.0.509 release itself (`SET TCP CONNECT-TIMEOUT`,
+including 0 as a legal value), a musl static-lib pin refresh, and John
+Goerzen's two branches — jump-reduction (replacing `siglongjmp()`-based
+timeouts with a more conventional deadline/goto style, to fix flaky-test
+races) and warn-reduction (`-Wsign-compare`, `-Wcast-qual`,
+`-Wmisleading-indentation`). **No code change and no measurement was run
+before merging** — this section is the merge and the port's own edit list,
+not a bench sitting.
+
+**One real conflict, and it was `ckutio.c`'s `ttoc()`.** The jump-reduction
+refactor deleted the `sigsetjmp`/`setjmp` branch edit 24 lived in and
+replaced it with a single `goto ttoc_failed` path that already existed
+identically on both sides for every other function in the file (`ttinl()`
+and friends already used `ck_deadline_expired()`) — `ttoc()` was the one
+function upstream had not yet converted. Edit 24's fix (hoist
+`tcflow(TCOON)` out of a `debug()` argument `NODEBUG` deletes) moved with
+it: same fix, same explanatory comment, applied to the surviving
+`ttoc_failed` copy of the POSIX recovery arm instead of the deleted
+`sigsetjmp` one. Nothing else in the 45 changed files conflicted.
+
+**The build did not merely conflict, it failed to compile, and that is
+edit 27.** `deadline_signal()` — the function the jump-reduction refactor
+introduces to replace every `signal(SIGALRM,handler)` call site — has a
+single, unconditional body calling `sigaction()`/`sigemptyset()`, with no
+platform guard of any kind. Open Watcom's DOS libc has no `<signal.h>`
+`sigaction()` at all — `wcc` failed on `struct sigaction` itself
+("Expression has incomplete type") before it could even reach the
+members.
+
+**The first version of edit 27 gated on `CK_POSIX_SIG` and CI on the PR
+caught that it was wrong** — four of five build-and-test jobs
+(freebsd, netbsd, openbsd, macos) failed, every one with `wermit` pty
+tests hanging 60 s, while the fifth (ubuntu) passed. `CK_POSIX_SIG`
+selects `siglongjmp()` vs `longjmp()` and enables the `sigprocmask()`
+masking a few hundred lines below (the construct that reading led this
+section to compare it against), but it is not a "does this platform have
+`sigaction()`" flag: the makefile sets it only for a handful of Linux
+targets, and every BSD/macOS target — which has always had
+`sigaction()` — never defines it. Gating on it left DOS uncompilable
+**and** silently downgraded every non-Linux Unix build to plain
+`signal()`, which does not clear `SA_RESTART` the way `sigaction()`
+does, so a `SIGALRM` stopped interrupting a blocking `read()` — the
+CI hangs. The one target that happens to define `CK_POSIX_SIG` (Linux)
+passed and very nearly hid the defect from ever reaching a review.
+
+§8 item 27 now gates the `sigaction()` body behind `#ifndef VICTOR9K`
+and puts the plain `signal()` call the refactor deleted in the `#else`
+arm. `VICTOR9K` is the only platform in this tree with no POSIX
+`sigaction()`, so it is the correct gate: a non-`VICTOR9K` platform gets
+back its pre-refactor behaviour exactly, and every other platform —
+Linux, BSD, macOS, `CK_POSIX_SIG` or not — keeps the unmodified,
+unconditional `sigaction()` body upstream shipped.
+
+**All 24 modules build, and the warning count is the same nineteen as
+before the merge** (`ckvictor.c` at zero, matching CLAUDE.md's running
+figure — the pre-merge "18" quoted there was already one short of the 19
+that §16bd's edits-23-26 sitting measured and is corrected here). DGROUP
+48,912 of 65,536 (74%), `ckermitw.exe` = 233,942 bytes, needs 245,750
+(239K) at load, smallest Victor 384K — unchanged from the 11.0.508 figures
+in every respect that matters: this merge cost 27 upstream commits'
+worth of code and one new upstream edit, and zero bytes anyone would
+notice. **Confirmed on the machine the same day — see below; the
+paragraph that used to stand here said "not run on MAME or the machine"
+and is superseded.**
+
+### Confirmed on real hardware, same day, no MAME leg needed
+
+`HW_TEST_16bh.md` proposed three MAME legs (HA/HC/HE). The operator ran
+real hardware instead and got a stronger result faster — direct commands
+at the `A:\` prompt rather than the `.BAT`-file legs the sheet specified,
+which is a fine substitution since CONNECT has no non-interactive form
+anyway.
+
+**Receive, `CKERMITW -l /dev/seriala -b 38400 -r`, host sends: works.**
+**Send, `CKERMITW -l /dev/seriala -b 38400 -s tranny.dat`, Victor sends:
+works**, and the operator judged (correctly) that repeating the receive
+leg a second time to satisfy the sheet's letter would have tested nothing
+new. Byte-exactness is measured, not assumed: `tranny.dat` is a copy of
+`TRANS.DAT` round-tripped Mac → Victor → Mac, and the returned copy's
+`md5` matches the original on the Mac. That confirms both directions'
+`deadline_signal()` call sites at once — install, arm, and cleanly disarm
+under real DOS, real time, real interrupts, not MAME's.
+
+**HE, run against a freshly built `CKICP.EXE` — the actual answer to
+"which program lets me test the escape-and-reconnect round trip".** The
+`CKICP.EXE` staged on the image was a pre-merge build (462,764 bytes, from
+the §16be CONNECT sitting); `CKERMITW.EXE -c` enters CONNECT directly but
+`<esc> C` **exits the program** rather than returning to a prompt, so it
+cannot run the reconnect half of HE at all. Rebuilt from HEAD
+(`XFLAGS=-dKEEP_ICP ZT=-zt2048`): **464,196 bytes, DGROUP 59,648/65,536
+(91%), needs 456,500 (445K), smallest Victor 640K** — +1,432 bytes over
+the stale build, same machine class. Staged over the old one, md5
+round-tripped clean.
+
+On the Victor: `CKICP` → `set line /dev/seriala` → `set baud 38400` →
+`connect`. Typed a sentence each way, both echoed on the far screen.
+`<esc>` back to `C-Kermit>` (confirmed — this is the behaviour `-c` does
+not have), `receive`, host sent a file, transfer completed, `connect`
+again, typing both ways still worked. **This is item 18's whole reason for
+existing — connect → escape → RECEIVE → reconnect — reproduced on the
+merged build**, and it is the first time `ttoc()`'s post-refactor
+`ttoc_failed` structure (with edit 24 in its new home) has run outside a
+compiler. The file transfer inside HE was watched complete but not
+independently `md5`-checked; the direct `-r`/`-s` pair above already
+established the underlying transfer path is byte-exact, so this gap is
+about confirming CONNECT's own read/write loop rather than the protocol
+engine.
+
+**What HA/HC's stale `.BAT` files did instead, for the record.** Before
+the operator switched to typing commands directly, `STEPHA.BAT`/
+`STEPHC.BAT` were run unmodified and turned out to invoke `D:\CKBB.EXE` —
+a 231,172-byte binary staged for §16bc's flow-control null-leg pair, not
+`CKERMITW.EXE`. Both completed clean (`rxlost=0 rxfull=0` at 38400 on real
+silicon; `RCVHC.DAT` is byte-exact `TRANS.DAT`), and `s16bcHA.ksc` sent a
+731-byte leftover fixture rather than the 32 KB one its own header comment
+describes. Harmless — it reproduced an already-closed §16bc result — but
+it tested nothing about this merge, and the lesson is procedural: a
+same-lettered `.BAT` file surviving from an old sitting is not the same
+thing as a run sheet for a new one.
+
+### The method point
+
+**A conflict marker names where two trees disagree; it does not name
+where a fix belongs, and treating them as the same question is how a
+fix gets left in dead code.** Git auto-merged everything after the
+conflict in `ttoc()` cleanly, including the entire `ttoc_failed` block —
+because our side had never touched it, so upstream's version applied
+with no marker at all. Taking "ours" at the conflict marker would have
+kept a `sigsetjmp` branch that dead code makes plausible on a read
+(it looks like ordinary error handling) but that the refactor's own
+non-conflicting hunk had already made unreachable. The conflict marker
+was the easy 10% of the problem; the other 90% — that the fix needed to
+move house — was only visible by reading what upstream did to the
+function as a whole, not by reading the diff.
+
+**And a guard's name is a claim about what it means, and the claim can be
+wrong even when the code compiles and links on the one platform being
+built.** `CK_POSIX_SIG` reads as "this platform is POSIX enough to have
+signal-related POSIX calls," which made it look like the right test for
+"does this platform have `sigaction()`" — it is neither what the macro is
+for nor what the makefile uses it to mean, and this port's own build
+(Open Watcom, one platform, no CI matrix) could not have shown the
+mistake: `VICTOR9K` and `CK_POSIX_SIG` are both false there, so both
+guards compile to the identical `#else` arm. **The five-platform CI
+matrix is the instrument that this port's own toolchain cannot be** —
+one Linux pass next to four BSD/macOS failures is the shape of "the
+guard is testing the wrong thing," and it would not have been visible
+from a single green build in either direction.

@@ -48,20 +48,22 @@ container exec -i ia16-ubuntu-2 bash -c \
 `ckcpro.c` is generated from `ckcpro.w` by `wart`, a **host** tool built with
 the host `cc`.
 
-All 24 modules compile. Warnings are 18 lines, all in stock upstream code and
+All 24 modules compile. Warnings are 19 lines, all in stock upstream code and
 all pre-existing — `debug()` expanding to nothing under `NODEBUG` (W111),
-two unreferenced labels, `localtime()` sign mismatch, `execvp()` const
-mismatch, and `docmdline(1)` in `ckcmai.c`. **`ckvictor.c` compiles with
-none.** It was 17 until `NOFLOAT` (§16j): dropping `GFTIMER` moves `ztime()`
-onto upstream's `ZTIMEV7` branch, whose K&R redeclarations of `localtime()`
-and `time()` produce two more sign mismatches at `ckutio.c:12399-12400`
-(they moved 80 lines when edit 18 went in).
-DGROUP is 48,896 of 65,536 (74%) after the linker adds libc; `ckermitw.exe`
-is 230,756 bytes and **needs 242,852 (237K) at load** (§16ay, after the
-11.0.508 merge; it was 230,690 / 242,786 through §16ax). Quote that figure —
-it is the port's cost and it is the same on every machine. **The 396,224
-that appears in older sections is not a RAM size, and §16x retracts it as a
-figure for this DOS too**; Victor MS-DOS 3.1 hands out **824,784 at 896K**.
+two unreferenced labels, `localtime()`/`time()` sign mismatches, `execvp()`
+const mismatch, a comparison that is always false on a target where
+`time_t` is unsigned, and `docmdline(1)` in `ckcmai.c`. **`ckvictor.c`
+compiles with none.** It was 17 until `NOFLOAT` (§16j): dropping `GFTIMER`
+moves `ztime()` onto upstream's `ZTIMEV7` branch, whose K&R redeclarations
+of `localtime()` and `time()` produce two more sign mismatches at
+`ckutio.c:12399-12400` (they moved 80 lines when edit 18 went in).
+DGROUP is 48,912 of 65,536 (74%) after the linker adds libc; `ckermitw.exe`
+is 233,942 bytes and **needs 245,750 (239K) at load** (§16bh, after the
+11.0.509 merge; it was 230,756 / 242,852 through §16be-§16bg). Quote that
+figure — it is the port's cost and it is the same on every machine. **The
+396,224 that appears in older sections is not a RAM size, and §16x retracts
+it as a figure for this DOS too**; Victor MS-DOS 3.1 hands out **824,784 at
+896K**.
 A Victor takes RAM in 128K increments from 128K to 896K.
 
 **It runs on a real Victor 9000, and PORTING.md §16o is the section that
@@ -1159,10 +1161,11 @@ socket is single-use, so start `socat` first and never probe the port.
 ## Hard rules
 
 1. **Do not modify upstream C-Kermit files.** The port's value is that the
-   protocol engine is untouched. There are exactly twenty-six upstream
-   edits (listed in `PORTING.md` §8); nineteen are wrapped in `#ifndef` or
-   `#ifdef VICTOR9K` and change nothing on any other platform. **14, 15,
-   16 and 23-26 are not, and all seven are flagged as such**: 14 moves a mis-nested
+   protocol engine is untouched. There are exactly twenty-seven upstream
+   edits (listed in `PORTING.md` §8); nineteen of the first twenty-six are
+   wrapped in `#ifndef` or `#ifdef VICTOR9K` and change nothing on any other
+   platform. **14, 15, 16 and 23-26 are not, and all seven are flagged as
+   such**: 14 moves a mis-nested
    `#endif` (an `#endif` cannot be placed conditionally), 15 fixes a cast
    that binds wrong, and 16 widens an `int` that was holding a `CK_OFF_T`.
    The last two are no-ops wherever `int` is 32 bits and so would be
@@ -1194,9 +1197,22 @@ socket is single-use, so start `socat` first and never probe the port.
    2022 fix beneath it was written for — and **26** gives `snddir()`'s
    bodyless `if` a body so a failed `zfnqfp()` cannot print an
    uninitialised `fnbuf`. Only 25 has an effect this harness can see.
-   If you think you need a twenty-seventh, say so
+   **27 is guarded, back to that pattern**: merging upstream 11.0.509
+   (§16bh) brought in a jump-reduction refactor whose new
+   `deadline_signal()` called `sigaction()` unconditionally, with no
+   platform guard at all, and Open Watcom's DOS libc has no `sigaction()`
+   at all — `ckutio.c` failed to compile with no guard. **The first
+   version gated on `CK_POSIX_SIG` and CI on the PR caught that it was
+   wrong**: that macro is Linux-only in the makefile, not a "has
+   `sigaction()`" flag, so it also silently downgraded every BSD/macOS
+   build to plain `signal()` and broke `SIGALRM`-interrupts-a-read —
+   four of five CI jobs hung for 60 s. Gated on `VICTOR9K` instead, the
+   only platform actually missing `sigaction()`: the `#else` arm restores
+   the plain `signal(SIGALRM,handler)` call the refactor deleted, a pure
+   no-op for every other platform.
+   If you think you need a twenty-eighth, say so
    explicitly rather than doing it quietly — the seventh through
-   twenty-sixth were all agreed that way. Say it again if
+   twenty-seventh were all agreed that way. Say it again if
    the edit turns out to need a second file: 12 and 13 both did, and 13's
    second half was the one that made the first half do anything.
    **18 is the model for how to add one**: purely additive (no upstream line
@@ -1265,7 +1281,7 @@ socket is single-use, so start `socat` first and never probe the port.
 | `v9k/tools/` | standing instruments, not disposable: `mzsize.py` (**hard rule 4 requires it**), `pktstat.py`, `mapoffset.py`, `ctswatch.py` (host-side `TIOCMGET`, §16am — the modem lines read without Kermit in the path), `wirenoise.py` (§16av — a drop-in replacement for the harness `socat` line that corrupts the wire on purpose, keyed on byte offset so two arms of an A/B meet the same noise), `hybridfat.py` (§16az — `info`/`list`/`put`/`get`/`del` on the FAT16 volume of a **Victor 9000 hybrid FreeDOS image**, which neither mtools nor `vtg_image_util` can read; it takes the volume base from the BPB's own `hidden_sectors` rather than assuming 129) |
 | `v9k/proofs/` | host programs §8 cites as the correctness argument for a shipped edit — `vcrc16.c` (edit 17), `vttinl.c` (edit 18), `vznewn.c` (edit 21) and `vburst.c` (the ISR burst detector). `make -C v9k/proofs` builds *and runs* them. **`vznewn.c` is the one to copy**: its Makefile rule EXTRACTS `v9k_backupname()` out of `ckvictor.c` at build time instead of transcribing it, so it is the only one of these that cannot drift from what ships |
 | `v9k/probes/` | genuine one-shots, kept so the answer stays checkable; build line at the top of each |
-| `ckutio.c` | serial, console, timers — **stock upstream except upstream edits 18, 23 and 24**. 18 is the `VICTOR9K` bulk-read arm at the bottom of `ttinl()`'s per-byte loop (§16aq): purely additive, `--nobulk` disables it at run time and `v9k: bulk sel= n=` says which arm ran. **23 and 24 are unguarded** — 23 makes `ttpkt()`'s `TESTING234` block preserve `IXON|IXOFF` instead of clearing them four lines before `tcsetattr()`, 24 hoists `ttoc()`'s only `tcflow(TCOON)` out of a `debug()` argument. Both were found by §16aj and carried as report-only for five sections |
+| `ckutio.c` | serial, console, timers — **stock upstream except upstream edits 18, 23, 24 and 27**. 18 is the `VICTOR9K` bulk-read arm at the bottom of `ttinl()`'s per-byte loop (§16aq): purely additive, `--nobulk` disables it at run time and `v9k: bulk sel= n=` says which arm ran. **23 and 24 are unguarded** — 23 makes `ttpkt()`'s `TESTING234` block preserve `IXON|IXOFF` instead of clearing them four lines before `tcsetattr()`, 24 hoists `ttoc()`'s only `tcflow(TCOON)` out of a `debug()` argument (moved to `ttoc()`'s `ttoc_failed` path by the 11.0.509 merge, §16bh). Both were found by §16aj and carried as report-only for five sections. **27 is guarded** (`#ifndef VICTOR9K` — not `CK_POSIX_SIG`, which is Linux-only and broke BSD/macOS CI the first time): restores the plain `signal(SIGALRM,handler)` call upstream's jump-reduction refactor replaced with an unconditional `sigaction()`, which Open Watcom's DOS libc does not have (§16bh) |
 | `ckufio.c` | file system — **stock upstream except upstream edits 19, 21 and 25**. 19 is one declaration in `zfcdat()`: `unsigned int mtime` was truncating a `time_t` and dating the whole volume to 1970 (§16ax). 21 is a purely additive `VICTOR9K` arm at the top of `znewn()` calling `v9k_backupname()`, so BACKUP and RENAME produce a name FAT can hold (§16bb). **25 is unguarded**: `zchko()` no longer opens with `O_CREAT` and no longer `zdelet()`s, because only an existing file can be a terminal and creating one to ask `isatty()` cost **4.4 s per received file** on a FAT root (§16bc) |
 | `ckc*.c` | protocol core — do not touch. **The exceptions are edits 17, 18, 20, 22 and 26** — 26 is one unguarded line in `ckcfns.c`'s `snddir()`, giving an `if` with no body a body so a failed `zfnqfp()` cannot leave `fnbuf` uninitialised under the listing header's `sprintf` (§16aw) — 22 is one guard in `ckcfn3.c`'s `gattr()`, making `case 'M'` live so a MAIL disposition is refused in the A-packet ACK the way PRINT already is (§16bb) — and 20 is the only one that adds a capability: a `VICTOR9K` `sndspace()` in `ckcfns.c` and the arm in `ckcpro.w` that calls it, so `REMOTE SPACE` is answered from INT 21h rather than from a `df` that `NOPUSH` deleted (§16ax) |
 

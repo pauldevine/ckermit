@@ -1,6 +1,17 @@
 # OpenKermit C-Kermit Changelog
 
-# C-Kermit 11.0.509 (not yet released)
+# C-Kermit 11.0.510 (not yet released)
+
+- Refactor to reduce use of siglongjmp(), eliminating races
+
+- Added `SET TCP CONNECT-TIMEOUT` to provide a new timeout for establishing a
+  TCP connection, defaulting to 30 seconds.  This can be useful for scripts and
+  tests.  The previous default was no timeout enforced by C-Kermit; setting
+  this value to 0 will restore that behvior.
+
+# C-Kermit 11.0.509
+
+August 20, 2026
 
 - Fixed a bug in statements like `\fcvtdate(..., -4)` where there was no space
   between the day and the year, producing outputs like `Sat Nov 262005` instead
