@@ -4,13 +4,20 @@ Handoff for the Victor 9000 port, written 9 August 2026, revised after
 §16ah and then again at the desk the same day, again on 10 August after
 §16ao, and again on 11 August after §16aq and then §16ar, and again on
 15 August after §16av, and again on 17 August after §16ax and then §16ay,
-and again on **21 August after §16bc, the first bench sitting since 12
-August**.
+and again on 21 August after §16bc, and again on **5 September after
+§16bg — CONNECT's escape key and round trip confirmed on the machine; the
+29 August ESC-key work and §16be/§16bf/§16bg are all still UNCOMMITTED.**
 **No live defect in the receive path.** §16af closed the last one.
 **And no live defect anywhere else on the list.** §16bc's transfer-display
 failure at 38400 on FreeDOS for Victor is a FreeDOS console-speed problem,
 not this port's — closed here **22 August 2026** and moved to the myfreedos
 backlog. Item 17.
+**And one feature is back in scope — CONNECT, item 18, added 27 August
+2026.** MS-DOS Kermit 3.13 on this same machine had it, it was how the
+operator reached BBSs, and the port's "file-transfer-only" definition was a
+milestone boundary rather than a verdict. Parser-first, two shipped
+binaries. Read item 18 before §1's ordering; it is the only open item on
+the list that is a feature rather than a measurement or a report.
 
 ---
 
@@ -924,6 +931,10 @@ waiting for. What is left starts at **5a**, and the honest summary of it is
 that the port has no known defect and no cheap lever — every remaining item
 is either a measurement whose instrument is in question (5a, 5b, 9), a
 feature nobody has needed yet (11, 12), or a confirmation run (7, 13, 14).
+**Item 18 changed that on 27 August 2026: CONNECT is a feature that IS
+needed, and it is the one item below that builds something.** It comes
+after item 8 in value — the upstream report needs no hardware and outlives
+the Victor — and before everything else.
 
 **Read item 5b before planning any of it.** The bench does not repeat to
 better than ~1.3 s, which is larger than several of the effects the items
@@ -2065,6 +2076,197 @@ which is what the original three-leg plan was built to ask.
 §16bc both use H-series leg labels, twelve days apart: §16ap's HG/HH are
 **9600 MS-DOS** legs and §16bc's HG/HH are the **FreeDOS 38400** pair.
 **A leg label is unique only within its sitting. Cite the section with it.**
+
+**18. CONNECT. IN SCOPE — 27 August 2026. Parser-first, two shipped
+binaries. TIER 1 BUILT AND RECEIVE-VALIDATED UNDER MAME — 27 August 2026,
+§16be.**
+
+**Progress (27 Aug 2026, no hardware).** The `conect()` stub in
+`ckvictor.c` §2 is now the Tier 1 pass-through loop: two polls
+(`ttchk()`/`conchk()`), host→screen batched one `conxo()` per drained run,
+keyboard→host one char at a time, escape menu transcribed from `doesc()`
+(C/Q/H/U/B/L/S/?/0 + literal escape). **No upstream edit.** Builds into
+both binaries, `ckvictor.c` still zero-warning, DGROUP unchanged in the
+shipping build (48,896, 74% — the loop is far code + a far-heap buffer),
+59,648 (91%, +16 B) in the parser build; neither changed machine class.
+**Console-write probe run (`v9k/probes/vconw.c`): a per-char loop caps at
+363 cps; batching gives ~1,100 cps (~908 µs/byte) — so the loop must batch,
+and it does.** Under MAME, `CKCON -c` entered CONNECT, drew the banner, and
+displayed two host-sent lines correctly (entry, `conbin()`, ring drain,
+CRLF all exercised).
+
+**HARDWARE SITTING — 28 Aug 2026, §16bf, `HW_TEST_16be.md`.** Tier 1 runs
+on the real Victor. Bidirectional typing works; console cost is 307 cps/char
+and ~965 cps batched (≈ 9600 baud, the console is the ceiling at/above
+9600). **The ANSI question is CLOSED with zero code: with the TSR loaded,
+ANSI pass-through (NA) and the VT52 transfer display (NB) both render
+correctly at once — Tier 2 is RETIRED, `CKICPA`/leg NC never needed.**
+
+**HARDWARE RE-CONFIRM — 5 Sep 2026, §16bg. Both open items closed, no
+code change, same binaries (CKERMITW `e976c2c0`, CKICP `7d553246`).**
+(a) **ESC escape — CONFIRMED on the machine.** In `CKICP` → `connect`:
+`<esc> ?` opened the menu, `<esc> S` the status, `<esc> C` returned to
+`C-Kermit>`. The `conchk()` peek works on real silicon. (Arrow pass-through
+not separately exercised; VKBD's `ready=1` is still its evidence.)
+(b) **CD round trip — CONFIRMED.** connect → `<esc> C` → `receive` (Mac
+`send`) → `connect` → a sentence each way → `<esc> C` → `exit`. Every step
+landed. **This is the workflow item 18 exists for, and it works.**
+
+**STILL OPEN:**
+(c) Cosmetic, **reproduced on the second sitting**: the file-collision
+prompt lands mid-screen during the fullscreen display (route it to the
+message line); and check why the parser build ASKED when §16av set FILE
+COLLISION to REPLACE.
+(d) **DTR is an unread pin — a measurement, not a defect.** `<esc> H`
+returned to the prompt with the DTR LED still lit, and `exit` left it lit.
+Consistent with the design: `tthang()` is a 500 ms B0 pulse then restore
+(`wcc -pl` confirms the arm), so DTR is back up before the LED is read, and
+the OEM driver holds it positive after exit. Also consistent with the OEM
+IOCTL write ignoring the DTR bit — §16an captured RTS only, pre-`msleep()`
+fix, and nobody has ever read DTR. `-dHUPTIME=5000` does NOT override the
+bare `#define` at `ckutio.c:3860` (W140). To settle it without a scope: a
+`v9k/probes/` one-shot dropping DTR via IOCTL for 5 s then via direct WR5
+for 5 s, read on the LED cable; if IOCTL ignores the bit, write WR5
+directly in the B0 arm (the §1f RTS hold-off already does). **Deferred 5
+Sep — no modem on the bench, the direct cable does not care.** See §16bg.
+Then Tier 1's last sub-item, **`CK_AUTODL`** (watch for a Kermit S packet
+and auto-start the receive — a `ckvictor.h` flag plus the `ksbuf[]` matcher;
+OFF in both builds today, confirmed by `wcc -pl`). The rest of the original
+item 18 text below still applies. **Tier 2 is struck — the TSR does ANSI.**
+
+**Why it is back.** MS-DOS Kermit 3.13 on this exact machine had CONNECT
+with Heath-19 / VT102 / VT52 emulation (`msyv90.asm`), and dialling BBSs
+through it was the feature the operator used most. "File-transfer-only"
+was §13's milestone boundary, and §13's own last paragraph says CONNECT
+comes "after all that" and should be "written fresh as a small polling loop
+over `ttinc()`/`coninc()` in `ckvictor.c`, not ported from `ckucon.c`
+(needs `fork()`) or `ckucns.c` (needs `select()`)." All that is done. This
+item is that paragraph, promoted.
+
+**The decision, and why it is the parser build.** Under `NOICP`,
+`ckcmai.c:3792` — `if ((cflg || cnflg || zstate) && !stayflg) doexit(...)`
+— is unconditional, because `stayflg` is a parser flag. **Escaping from
+CONNECT in the shipping build exits the program, and `exithangup = 1`
+(`ckcmai.c:1290`) then drops DTR through `tthang()` — which, since §16av,
+actually works.** So the BBS loop — connect, navigate to the file area,
+escape, `RECEIVE`, `CONNECT` again — needs a prompt to escape back *to*,
+and a prompt is what 3.13 was. The alternative, a port-private key menu
+under the escape character (`^\ R` receive, `^\ S name` send), keeps 384K
+and grows a parser one key at a time; it was considered and rejected.
+**So: `CKICP.EXE` (the `KEEP_ICP` build, 640K class since §16ay) is the
+3.13-equivalent and gets CONNECT as a first-class command; `CKERMITW.EXE`
+(384K) stays the file-transfer binary and gets the same loop through `-c`
+for one-shot terminal sessions, since it links the same `ckvictor.c`.**
+Two binaries, one implementation. This makes item 8b of §16ay — the parser
+build's move from 512K to 640K, DGROUP at 90% — worth chasing back, and
+`-zt` is the lever (§16y).
+
+**What is already there, so the loop is smaller than it looks:**
+
+- **The entry point is ours.** `doconect()` (`ckuus4.c:2178`) calls
+  `conect()`, and `ckvictor.c` §2 supplies the stub that prints "not
+  supported." Replace the stub. **No upstream edit.** `-c` reaches it today
+  (`ckuusy.c:2350` sets `cflg`; `ckcmai.c:3764` calls `doconect(0,0)` under
+  `#ifndef NOLOCAL`, and `NOLOCAL` is undefined because `SET LINE` needs
+  it). The parser build's `CONNECT` command is the same call.
+- **Both console halves are measured on hardware.** Output is VT52/Z19
+  through INT 21h (§16ao); input is raw `AH=07h` with `ICANON` honoured
+  (§16ac, §16ad); `conchk()` is `AH=0Bh` (§12); `conbin()`/`conres()` write
+  the console's own termios since §16z fixed the shared cache — that defect
+  would have hit CONNECT on its first call.
+- **Everything `ckucns.c`'s loop asks of the platform exists**: `ttchk()`
+  (a real ring count since §11b), `ttinc()`, `ttoc()`, `ttol()`, `conchk()`,
+  `coninc()`, `conoc()`, `conxo()` (`ckutio.c:12979`), `logchar()`
+  (`ckuusx.c:6052`), `dopar()`, and the `escape` (`DFESC` = 28, `^\`),
+  `duplex`, `tt_crd`/`tt_lfd` variables. `hconne()`'s hangup works now
+  because `msleep()` does (§16av). The one thing it needs that this port
+  cannot give is `select()`, and that is the whole reason for a fresh loop.
+- **`ckvictor.c` §2c already carries `inesc[]`/`oldesc[]`/`chkaes()` stubs**
+  under `#ifndef VICTOR_HAVE_CHKAES`, with a comment explaining that
+  `oldesc[] = -1` (what `ckucns.c` does) would make `INPUT`'s session log
+  drop every character. If Tier 2 gives the port a real escape-sequence
+  recognizer, define `VICTOR_HAVE_CHKAES` and keep that initialisation rule.
+
+**Tiers, in order, each one shippable:**
+
+1. **Pass-through.** The Victor console IS a VT52/Z19, so a host or BBS set
+   to VT52 or dumb TTY works with no emulation code at all. Poll
+   `ttchk()`/`conchk()`, drain the ring in runs, batch screen output and
+   flush through `conxo()` (per-character INT 21h is the cost to avoid —
+   see the probes below), and transcribe `doesc()` (`ckucns.c:2503`) for
+   the escape menu: C close, Q quit, B break (`tcsendbreak()` gets its
+   first exercise — §1 item 16), H hangup, S status, ? help, 0 NUL, and the
+   escape character sent literally. Local echo from `duplex`; CR/LF
+   handling from `tt_crd`/`tt_lfd`; 7-bit masking from `cmask`/`cmdmsk`;
+   parity from `dopar()`; session log through `logchar()` when `seslog`.
+   **The BBS case that matters most for Tier 1 is `CK_AUTODL`**: the loop
+   watches for a Kermit S packet in the incoming stream and starts the
+   receive itself, which is the "the host started sending" experience of
+   the era. It is a `ckvictor.h` flag plus the `ksbuf[]` matcher, not a
+   second feature.
+2. **ANSI → VT52 translation.** `msyv90.asm` is mostly this — a VT102 /
+   Heath-19 emulator whose text path maps `ESC[r;cH` → `ESC Y` (`:1322`),
+   `ESC[2J` → `ESC E`, `ESC[0K` → `ESC K` (`:1626-1751`), all through INT
+   21h, so hard rule 6 holds exactly as it did for 3.13. BBS "ANSI" is that
+   plus SGR: map reverse video (SGR 7) to Z19's `ESC p`/`ESC q`, drop
+   colours (the screen is monochrome), drop anything the Z19 cannot do. A
+   state machine in `ckvictor.c` §1g beside the display code, which already
+   owns the VT52-vs-ANSI console choice (§16av part 5). **The same
+   recognizer is what `chkaes()` should become.**
+3. **Out, by rule 6:** Tektronix (3.13 wrote `F000:0` screen memory for it,
+   and only for it) and CP437 line-drawing (a font problem, not a terminal
+   one).
+
+**Measure first — two `v9k/probes/` one-shots, both a 2.5-minute boot,
+neither needing the bench:**
+
+- **Console write throughput.** Nothing has ever measured INT 21h screen
+  output per character. §16ap's ~4-5 s over 331-514 display writes says a
+  write *call* costs ~10 ms on MS-DOS 3.1, so a per-character `AH=02h`
+  loop would cap the terminal near **100 cps** — below a 1200 bps modem.
+  One probe, three arms: 1,920 characters as one `AH=40h` write, as 1,920
+  calls, and as 24 line-sized writes. The answer sets the loop's batching
+  and is the number every later CONNECT figure is quoted against. **It
+  also decides the FreeDOS story**: that kernel writes to channel A on
+  every INT 21h call (§16az), so CONNECT on FreeDOS is channel B only, and
+  §16bc item 17 says its console is ~2× slower besides.
+- **Keyboard.** Whether the Victor's keyboard driver delivers `^\` (0x1C)
+  through `AH=07h` at all, and what the arrow, function and `Alt`-class
+  keys produce — §16ad flagged extended keys as the one thing MAME could
+  not settle, and a terminal is the first thing in this port that cares.
+  `SET ESCAPE` covers the parser build; `CKERMITW -c` wants an
+  `--escape=N` switch through §16i's XI mechanism if the default cannot be
+  typed.
+
+**Known caveats to carry into it:**
+
+- **Carrier.** `ttgmdm()` forces DCD present under `CLOCAL` (§4's carrier
+  clause), so `ttchk() < 0` will never report a dropped line. RR0 bit 3 is
+  the real DCD on the 7201. With a modem on the bench for the first time,
+  that clause needs revisiting — it was written when nothing had ever
+  looked at the pin.
+- **No dialer.** `ckudia.c` (238 KB, `NODIAL`) stays out; `ATDT` is typed
+  inside CONNECT, as it was on 3.13.
+- **The parser build's two interactive prompts** (`set receive confirm
+  off`, `set exit warning off` — §4) matter more here, since a BBS session
+  is interactive by definition and a redirect is not in the picture.
+- **The transfer display and CONNECT share the console**: `doconect()`
+  calls `conres()` on entry and the loop must leave the console in the
+  state `concb()` expects, or the next `RECEIVE`'s fullscreen display
+  paints wrong. §16ao item 4's `fflush()` rule applies.
+- **DGROUP.** The loop's output buffer and the Tier 2 state are small, but
+  the parser build has 5,904 bytes of DGROUP left (§16ay). Far heap for any
+  buffer over a few hundred bytes; `make -f victorow.mak sizes` and
+  `mzsize.py` on BOTH binaries, per hard rule 4.
+
+**Docs to move in the same commit as the loop:** PORTING.md §5's "Out"
+table (`ckucon.c`/`ckucns.c` row and the "Terminal emulation / CONNECT —
+Excluded" row), §13's closing paragraph, the stub comment at
+`ckvictor.c` §2, and `CLAUDE.md`'s "serial-only, file-transfer-only"
+sentence. A new PORTING.md section — §16be or later — records the two
+probe results and the first session on the wire.
+
+---
 
 ## 2. The two builds
 

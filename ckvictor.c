@@ -1206,20 +1206,263 @@ v9k_fclose(f) FILE * f;
 /* ------------------------------------------------------------------ */
 
 /*
-  CONNECT.  Not part of the first milestone -- the Victor build is for
-  file transfer only.  ckucns.c (select-based) and ckucon.c (fork-based)
-  are both unusable here: one needs select() on a tty, the other needs
-  fork().  A future Victor CONNECT would be a small polling loop over
-  ttinc()/coninc() and belongs in this file rather than in either of
-  those modules.
+  CONNECT -- terminal mode, PORTING.md item 18, Tier 1 (pass-through).
+
+  Written fresh as SS13 asked: a small polling loop over the platform
+  primitives, NOT ported from ckucon.c (needs fork()) or ckucns.c (needs
+  select() on a tty).  Neither of those is reachable here; this file is,
+  and this is the "future Victor CONNECT" the old stub's comment named.
+
+  WHY A PASS-THROUGH IS A WHOLE TIER.  The Victor console IS a DEC VT52
+  with Heath Z19 extensions (section 1g, PORTING.md SS16ao), so a host or
+  BBS set to VT52 or dumb TTY needs no emulation code at all: host bytes go
+  straight to the screen and keystrokes go straight to the line.  ANSI ->
+  VT52 translation (BBS "ANSI") is Tier 2 and lives beside the display code
+  in section 1g when it is written; autodownload (CK_AUTODL) is the other
+  Tier-1 item and is off in this build today.  This is the base both rest on.
+
+  THE LOOP IS TWO POLLS AND NO BLOCK.  ttchk() is a real ring depth since
+  section 1e took the uPD7201 over (installed by tcsetattr() at SET LINE /
+  SET SPEED, so the ring is already live when CONNECT starts), and
+  conchk() is INT 21h AH=0Bh.  On a single 8088 with nothing else to do,
+  a tight poll is the lowest-latency arrangement and costs only cycles that
+  would otherwise be spent in a nap; there is no second thread to yield to.
+
+  HOST -> SCREEN IS BATCHED, KEYBOARD -> HOST IS NOT, and that asymmetry is
+  the console-write cost (v9k/probes/vconw.c, item 18): a drained run is
+  written to the screen in ONE conxo() call rather than one conoc() per
+  byte, because the INT 21h console write is dominated by per-call overhead.
+  Keystrokes arrive one at a time from a human, so there is nothing to batch
+  on that side.
+
+  Both builds link this.  In CKERMITW (384K, -c one-shot) escaping ends the
+  loop and mainline then exits, dropping DTR through tthang() (exithangup);
+  in CKICP (the parser build) escaping returns to the C-Kermit> prompt.  The
+  difference is entirely in ckcmai.c's stayflg test -- this function just
+  ends the loop with cx_status set and lets mainline decide, which is why
+  one implementation serves two binaries.
 */
-char *connv = "CONNECT Command for Victor 9000: not implemented";
+char *connv = "CONNECT Command for Victor 9000: 1.0, item 18, Tier 1";
+
+extern int local, quiet, escape, tt_escape, duplex, cmask, cmdmsk;
+extern int seslog, parity, flow, ttfdflg, xitsta, cx_status, tnlm, what;
+extern int mdmtyp;                      /* Defined just below this fn     */
+extern long speed;
+extern char ttname[];
+
+#define V9K_CONBEL   007                /* ckcasc.h's BEL, not included   */
+#define V9K_CONBUFL  512                /* Host-run batch size            */
+
+/*  Escape-menu status line (escape then S).  */
+static VOID
+v9k_constat() {
+    char b[80];
+    conol("\r\n");
+    if (speed >= 0L) {
+        sprintf(b," Speed: %ld\r\n", speed);
+        conol(b);
+    }
+    sprintf(b," Terminal echo: %s\r\n", duplex ? "local" : "remote");
+    conol(b);
+    sprintf(b," Terminal bytesize: %d\r\n", (cmask == 0177) ? 7 : 8);
+    conol(b);
+    sprintf(b," Parity: %s\r\n", parnam((char)parity));
+    conol(b);
+}
+
+/*  Escape-menu help (escape then ? or H... no: H is hangup, ? is help).  */
+static VOID
+v9k_conhelp() {
+    conol("\r\n Escape commands (type the escape character first):\r\n");
+    conol("   C  close and return to the prompt\r\n");
+    conol("   Q  hang up and quit Kermit\r\n");
+    conol("   H  hang up (U also)\r\n");
+    conol("   B  send a BREAK       L  send a long BREAK\r\n");
+    conol("   S  status             ?  this help\r\n");
+    conol("   0  send a NUL         SP  resume the session\r\n");
+    conol("   (the escape character twice sends it literally)\r\n");
+}
 
 int
 conect() {
-    printf("?CONNECT is not supported in this build.\n");
-    printf(" This is a file-transfer-only C-Kermit for the Victor 9000.\n");
-    return(-1);
+    char * cbuf;
+    static char * cbufp = NULL;         /* Far-heap batch buffer, kept    */
+    int c, c2, n, i, u;
+    int active, hang = 0, quit = 0;
+
+    if (!local) {
+        printf("Sorry, you must SET LINE first\n");
+        return(0);
+    }
+    if (speed < 0L && ttfdflg == 0) {
+        printf("Sorry, you must SET SPEED first\n");
+        return(0);
+    }
+    if (ttyfd < 0) {                    /* Open the line if it is not     */
+        if (ttopen(ttname,&local,mdmtyp,0) < 0) {
+            printf("Sorry, can't open %s\n", ttname);
+            return(0);
+        }
+    }
+    if (!cbufp) {                       /* One allocation, out of far heap*/
+        cbufp = malloc(V9K_CONBUFL);
+        if (!cbufp) {
+            printf("Sorry, CONNECT buffer can't be allocated\n");
+            return(0);
+        }
+    }
+    cbuf = cbufp;
+
+    if (!quiet) {
+        char b[80];
+        sprintf(b,"Connecting to %s", ttname);
+        conol(b);
+        if (speed > -1L) {
+            sprintf(b,", speed %ld", speed);
+            conol(b);
+        }
+        conol("\r\n");
+        if (tt_escape) {
+            shoesc(escape);
+            conol("Type the escape character followed by C to get back,\r\n");
+            conol("or followed by ? to see other options.\r\n");
+        } else {
+            conol("ESCAPE CHARACTER IS DISABLED\r\n");
+        }
+        conol("----------------------------------------------------\r\n");
+    }
+
+    /*
+      Console into cbreak/raw (ICANON clear -> v9k_read() does AH=07h, no
+      echo, OPOST cleared -> host bytes reach the screen untranslated) and
+      the line to 8-bit terminal mode.  ttvt() re-sets ttpmsk to 0xff and,
+      on this local line, re-applies the speed already in force -- harmless,
+      and it is what upstream conect() does at this point.
+    */
+    if (conbin((char)escape) < 0) {
+        printf("Sorry, can't condition console terminal\n");
+        return(0);
+    }
+    (void)ttvt(speed,flow);
+
+    what = W_CONNECT;
+    active = 1;
+
+    while (active) {
+        /* Host -> screen.  Drain the ring in runs; one write per run.    */
+        n = ttchk();
+        if (n < 0) {                    /* Line closed / carrier gone     */
+            active = 0;
+            break;
+        }
+        if (n > 0) {
+            if (n > V9K_CONBUFL)
+              n = V9K_CONBUFL;
+            n = ttxin(n,(CHAR *)cbuf);
+            if (n < 0) {
+                active = 0;
+                break;
+            }
+            for (i = 0; i < n; i++) {
+                cbuf[i] &= cmask;        /* 7- or 8-bit display mask       */
+                if (seslog)
+                  logchar(cbuf[i]);
+            }
+            conxo(n,cbuf);              /* One INT 21h for the whole run   */
+            continue;                  /* Prefer draining the line        */
+        }
+
+        /* Keyboard -> host.  One key at a time; a human is typing.        */
+        if (conchk() > 0) {
+            c = coninc(0);
+            if (c < 0) {
+                active = 0;
+                break;
+            }
+            c &= cmdmsk;
+            if (tt_escape && (c & 0xff) == (escape & 0xff)) {
+                /*
+                  Tell the ESCAPE KEY from a key that SENDS an escape
+                  sequence.  The Victor default escape is ESC (0x1b, the
+                  key labelled <esc> = Alt+RVS), but the arrow and SCRL
+                  keys also emit 0x1b -- followed IMMEDIATELY by more bytes,
+                  already buffered together.  PORTING.md §16bf's VKBD dump
+                  is the proof: after an arrow's 0x1b, conchk() reads
+                  ready=1; after the standalone <esc> key, ready=0.  So if a
+                  byte is already waiting, this 0x1b is the lead of a
+                  sequence bound for the host -- pass it through and let the
+                  following bytes go as ordinary keystrokes on the next
+                  iterations.  A human reaching for the escape menu types
+                  the command as a separate, later keypress, so nothing is
+                  pending here and we fall through to the menu.  Harmless
+                  for a rare escape like Ctrl-\ (nothing generates it +byte).
+                */
+                if (conchk() > 0) {
+                    c &= cmask;
+                    ttoc((char)dopar((CHAR)c));
+                    if (duplex) {
+                        conoc((char)c);
+                        if (seslog) logchar((char)c);
+                    }
+                    continue;
+                }
+                c2 = coninc(0) & 0x7f;   /* The escape argument            */
+                if (c2 == (escape & 0x7f)) {
+                    ttoc((char)dopar((CHAR)escape)); /* Literal escape     */
+                } else {
+                    u = c2;
+                    if (u >= 'a' && u <= 'z') u -= ('a' - 'A');
+                    switch (u) {
+                      case 'C': case 003:            /* Close -> prompt    */
+                        active = 0; cx_status = CSX_ESCAPE; break;
+                      case 'Q':                      /* Hang up and quit   */
+                        active = 0; quit = 1; cx_status = CSX_USERDISC; break;
+                      case 'H': case 'U':            /* Hang up            */
+                        active = 0; hang = 1; cx_status = CSX_USERDISC;
+                        conol("\r\nHanging up\r\n"); break;
+                      case 'B':                      /* BREAK              */
+                        ttsndb(); break;
+                      case 'L':                      /* Long BREAK         */
+                        ttsndlb(); break;
+                      case 'S':                      /* Status             */
+                        v9k_constat(); break;
+                      case '?':                      /* Help               */
+                        v9k_conhelp(); break;
+                      case '0':                      /* Send a NUL         */
+                        ttoc((char)dopar((CHAR)0)); break;
+                      case ' ':                      /* Resume             */
+                        break;
+                      default:
+                        conoc((char)V9K_CONBEL); break;
+                    }
+                }
+                continue;
+            }
+            /* Ordinary keystroke: mask, parity, send, maybe local echo.   */
+            if (c == '\r' && tnlm) {
+                ttoc((char)dopar((CHAR)'\r'));
+                if (duplex) conoc('\r');
+                c = '\n';
+            }
+            c &= cmask;
+            ttoc((char)dopar((CHAR)c));
+            if (duplex) {                /* Half duplex: echo it here      */
+                conoc((char)c);
+                if (seslog)
+                  logchar((char)c);
+            }
+        }
+    }
+
+    conres();                          /* Console back to cooked          */
+    what = W_NOTHING;
+    if (hang || quit)
+      tthang();                        /* Drop DTR                        */
+    if (quit)
+      doexit(GOOD_EXIT,xitsta);
+    if (!quiet)
+      conol("\r\n(Back at the local system)\r\n");
+    return(1);
 }
 
 /*
@@ -5315,6 +5558,32 @@ v9k_set_nodisplay(void)
 
 static struct v9k_rt_init __based(__segname("XI")) v9k_nodisplay_rec =
     { 1, 0, v9k_set_nodisplay };
+
+/*
+  The Victor CONNECT escape character defaults to ESC (0x1b), not upstream's
+  Ctrl-\ (DFESC = 0x1c), because the Victor keyboard has a key LABELLED
+  <esc> (Alt+RVS) and that is the key an operator reaches for.  MS-DOS
+  Kermit 3.13 on this machine used a rare control for the same job, but the
+  labelled key wins on discoverability, and the arrow/SCRL conflict that
+  makes ESC a poor escape elsewhere is handled in conect() by a one-call
+  conchk() peek that §16bf's VKBD dump proved reliable on this keyboard
+  (ESC key -> ready=0, arrow -> ready=1).
+
+  Set from an initializer rather than by touching ckcmai.c's
+  "escape = DFESC" (an upstream edit): this runs after that static init and
+  before main() reaches CONNECT, and SET ESCAPE / --escape can still
+  override it.  It also moves the file-transfer cancel prefix to ESC, which
+  is uniform and has no sequence-key conflict during a transfer.
+*/
+static void __far
+v9k_set_escape(void)
+{
+    escape = 27;                        /* ESC -- the labelled <esc> key  */
+    tt_escape = 1;                      /* Escaping enabled (already is)  */
+}
+
+static struct v9k_rt_init __based(__segname("XI")) v9k_escape_rec =
+    { 1, 32, v9k_set_escape };
 
 /*
   --nobulk -- put ttinl()'s per-byte loop back for one run.

@@ -263,7 +263,7 @@ entirely translation tables.
 | `ckctel.c` bulk | 290KB | telnet protocol |
 | `ckudia.c` | 238KB | modem dialing + modem database |
 | `ckupty.c` | 50KB | pseudo-terminals (needs `fork`) |
-| `ckucon.c` / `ckucns.c` | 81/78KB | CONNECT — one needs `fork()`, the other `select()` on a tty; neither is usable. See §13. |
+| `ckucon.c` / `ckucns.c` | 81/78KB | CONNECT — one needs `fork()`, the other `select()` on a tty; neither is usable. The Victor CONNECT is written fresh in `ckvictor.c` §2 instead (Tier 1, §16be). |
 | `ckuscr.c` | 18KB | UUCP-style scripting |
 | `ckcmdb.c` | 7KB | malloc debugging |
 
@@ -282,7 +282,7 @@ reachable from four files.
 | File system | **`ckufio.c`** | `zopeni`, `zopeno`, `zinfill`, `zsoutx`, `zclose`, `zchki`, `zchdir`, directory walk. |
 | Signals | `ckusig.c` + `ckcsig.h` | Tiny (202 bytes). |
 | Networking | `ckcnet.c`, `ckctel.c` | Compiled out. |
-| Terminal emulation / CONNECT | `ckucon.c`, `ckucns.c` | Excluded. |
+| Terminal emulation / CONNECT | **`ckvictor.c` §2** | Tier 1 (pass-through) runs on hardware (§16bf); the VT52/Z19 console needs no emulation. **Tier 2 retired — the Victor's ANSI TSR renders BBS ANSI through the pass-through, no translator on our end.** `ckucon.c`/`ckucns.c` excluded (fork/select). §16be, §16bf. |
 
 **`ckutio.c` and `ckufio.c` are the port.** Everything above them is unmodified
 upstream code. Everything below them is the Open Watcom DOS runtime plus
@@ -3228,6 +3228,11 @@ Order of work:
 Only after all that is CONNECT worth considering — and it should be written
 fresh as a small polling loop over `ttinc()`/`coninc()` in `ckvictor.c`, not
 ported from `ckucon.c` (needs `fork()`) or `ckucns.c` (needs `select()`).
+
+**DONE, in part — 27 August 2026.** CONNECT came back into scope
+(NEXT_SESSION.md item 18) and Tier 1 (pass-through) is that polling loop,
+built and receive-validated under MAME; see §16be. The send half, escape
+menu and keyboard are bench items.
 
 ---
 
@@ -7277,9 +7282,10 @@ stripped. Write take-files with CRLF; that is the ending that has been run.
   is the twelfth upstream edit; see §8 item 12 for why the cheap route
   (making `NOFRILLS` conditional on `KEEP_ICP` in `ckvictor.h`, no upstream
   edit) was the wrong one.
-- **`connect` — "file-transfer-only"**. Ours, `ckvictor.c` §1e-adjacent, and
-  deliberate: neither `ckucon.c` (needs `fork()`) nor `ckucns.c` (needs
-  `select()` on a tty) is linked.
+- **`connect` — Tier 1 built (§16be), was "file-transfer-only"**. Ours,
+  `ckvictor.c` §2, a fresh polling loop: neither `ckucon.c` (needs `fork()`)
+  nor `ckucns.c` (needs `select()` on a tty) is linked. Receive path proven
+  under MAME; send/escape/keyboard are bench items.
 - **`show communications` says "unknown" before `SET LINE`, and "Modem
   signals unavailable"**. `shoparc()` prints "unknown" when `ttyfd == -1`
   (`ckuus4.c`), and the default line is `dftty = CTTNAM = "/dev/tty"` with
@@ -13028,3 +13034,261 @@ retransmissions** and landed at 27.763 / 27.746 / 27.730 / 27.803 — a
 seen from the good side: the pass-2 trio is the best-matched comparison
 this bench has produced, and comparing either pass against the other would
 have been meaningless.
+
+---
+
+## 16be. CONNECT is back, and Tier 1's receive path is proven under MAME
+
+**27 August 2026, no hardware.** PORTING.md item 18 (NEXT_SESSION.md §1)
+put CONNECT back in scope on this date; this is the first work on it. **The
+"file-transfer-only" definition was §13's milestone boundary, not a
+verdict** — MS-DOS Kermit 3.13 had CONNECT on this exact machine and it was
+how the operator reached BBSs. Tier 1 (pass-through terminal) is now
+written, builds into both binaries, and has been validated as far as MAME
+can reach it. **No upstream edit — the old `conect()` "not supported" stub
+in `ckvictor.c` §2 is replaced by the loop, and nothing above it changed.**
+
+**The loop is two polls and no block.** `ttchk()` is a real ring depth
+since §11b took the µPD7201 over — and it is live during CONNECT because
+the driver is installed by `tcsetattr()` at SET LINE / SET SPEED, before
+CONNECT starts — and `conchk()` is INT 21h AH=0Bh. Host → screen is drained
+in runs and written with **one `conxo()` per run**; keyboard → host is one
+char at a time (a human is typing, nothing to batch). The escape menu is
+transcribed from `ckucns.c`'s `doesc()`: C close, Q quit, H/U hang up, B/L
+break, S status, ? help, 0 NUL, and the escape character sent literally.
+On a single 8088 with no second thread, a tight poll is the lowest-latency
+arrangement and costs only cycles a nap would have wasted.
+
+**The console-write probe (`v9k/probes/vconw.c`) is why the loop batches,
+and the number is the one every later CONNECT figure is quoted against.**
+Three arms, same INT 21h AH=40h write call, three chunk sizes, on Victor
+MS-DOS 3.1 under MAME at 896K:
+
+| arm | chunk | per call | derived |
+|---|---:|---:|---|
+| char | 1 B    | **2.75 ms** | **per-char-loop ceiling = 363 cps** |
+| line | 80 B   | 74.5 ms | 931 µs/byte |
+| big  | 1920 B | 1.745 s | **908 µs/byte** |
+
+These fit `cost(n) ≈ 1.86 ms/call + 0.91 ms/byte` to within the clock's
+quantum. So the console is **per-byte dominated** (~908 µs/byte ≈ glyph
+paint plus scroll, the test string having no newlines so it wraps and
+scrolls constantly), and the fixed ~1.86 ms per call is what a per-character
+loop pays on **every** byte — which is why that loop caps at **363 cps**,
+below even 4800 baud. **Batching amortises the call overhead, leaving
+~908 µs/byte ≈ 1,100 cps** — about **3× faster**, enough for 9600 (960 cps)
+but console-bound above it. The one-`conxo()`-per-run design is therefore
+measured, not assumed, and sustained full-screen output above 9600 will be
+the console's limit, not the wire's.
+
+**The receive path works.** `CKCON -c` (a rename of the shipping build)
+booted, printed the banner — `Connecting to /dev/seriala, speed 9600`,
+`Escape character: Ctrl-\ (ASCII 28, FS): enabled` — conditioned the console
+raw, and **displayed both host-sent lines correctly on their own lines**
+(`CONNECT-RX-OK on the Victor 9000` / `line two via CONNECT`), which
+exercises entry via `-c`, `conbin()`, the ring drain and CRLF handling in
+one snapshot. The host pushed the string with `OUTPUT` over the `-bitb`
+socket. **The send half, the escape menu and the keyboard are NOT tested
+here and cannot be:** MAME mangles typed input (§16a), so the interactive
+half is a bench item, and the keyboard probe (`v9k/probes/vkbd.c`, whether
+AH=07h even delivers `^\` = 0x1C, and what the arrow/function/Alt keys
+produce — §16ad's open question) is written and waiting for a real keyboard.
+
+**Both binaries carry it and neither changed machine class.** DGROUP is
+**48,896 (74%) in the shipping build, UNCHANGED** — the loop is far code
+plus a far-heap buffer (`malloc`, large model), so it adds zero near data —
+and 59,648 (91%, +16 B) in the parser build. `ckvictor.c` still compiles
+with **zero warnings**. Image 233,464 needs 239K (smallest Victor 384K);
+the parser build 462,710 needs 445K (still 640K). Decided in item 18 and
+unchanged: `CKICP.EXE` is the 3.13-equivalent and gets `CONNECT` as a
+first-class command; `CKERMITW.EXE` gets the same loop through `-c`. Two
+binaries, one implementation, because both link `ckvictor.c` and the loop
+is guarded by neither `NOICP` nor `NOSPL`.
+
+**One durable harness lesson cost two MAME runs.** The probe first wrote its
+results through a stdout redirect (`VCONW > VCONW.OUT`), and both early runs
+were killed by `-seconds_to_run` while still inside the slow big arm — so
+the program never exited, DOS never closed the file, and its **directory
+entry was never finalised: a screen full of test pattern and no file at
+all.** Same shape as the 0-byte `.OUT` traps of §16av/§16ax, one level
+down. The fix is that **a probe whose result must survive a cut-off run
+opens, appends and CLOSES its own output file after each unit of work**,
+rather than trusting a redirect that only finalises on exit. `vconw.c` now
+`close()`s after every arm, so a killed run still yields the arms that ran.
+
+
+---
+
+## 16bf. CONNECT on the machine: it works, ANSI is free, and the escape is a keyboard question
+
+**28 August 2026, on the real Victor 9000**, over the direct USB-C→RS-232
+cable to a Mac (`HW_TEST_16be.md`; photos `IMG_2066`–`IMG_2071`). Tier 1
+CONNECT runs on hardware. **No code change came out of this sitting — the
+findings are a keyboard fact, a cosmetic display note, and the ANSI question
+closed by measurement.**
+
+**The ANSI question is closed and the answer is zero code.** With the
+Victor's ANSI TSR loaded ahead of Kermit: ANSI from the host renders through
+our **pure pass-through** (leg NA — `col40`/`movedHere`/`line10 col1`/
+`bottom-line-24` land at the addressed positions, `IMG_2069`), AND the VT52
+fullscreen transfer display renders correctly **at the same time** (leg NB —
+no stray control characters, `IMG_2070`). So the TSR interprets ANSI and
+passes our VT52 through. **Tier 2 (an ANSI→VT52 translator in §1g) is
+retired; `V9K_CON_FORCE_ANSI`/`CKICPA` and leg NC were never needed.** The
+residual work item §16be flagged is closed: nothing.
+
+**The console cost, on real silicon.** VCONW: **307 cps** per-character
+ceiling (3.25 ms/call), **1036 µs/byte**, fitting `≈ 2.7 ms/call +
+1.04 ms/byte`. MAME's 363 cps / 908 µs/byte was ~15% optimistic — the same
+direction and size as §16n's disk timing. The batched ceiling is
+**~965 cps, which is essentially 9600 baud (960 cps)**: the loop's
+one-`conxo()`-per-run batching (which it does) buys ~3× over per-char, and
+**the console, not the wire, is the ceiling at and above 9600** — sustained
+full-screen output above 9600 is console-bound.
+
+**CONNECT works both ways** (leg CB, `IMG_2068`): every ASCII byte typed on
+either end appears on the other. Three observations that look like defects
+are correct transparent pass-through, exposed by testing Victor↔Mac with
+**both ends in CONNECT** — no host to echo or translate newlines: no local
+echo (full duplex; the far end echoes), a bare CR does not advance a line
+(we send CR, a dumb peer needs CRLF), and backspace erases only where the
+receiving terminal chooses to. `SET DUPLEX HALF` and `SET TERMINAL
+NEWLINE-MODE ON` in the parser build drive `duplex`/`tnlm`, which the loop
+already honours; against a real host none of this arises.
+
+**The escape is a keyboard fact, and it is why the menu "did not register".**
+The escape character is Ctrl-\ (`0x1c`, FS), and **the Victor's ESC key
+(Alt+RVS) sends `0x1b`, a different byte** — so pressing it passed straight
+through instead of entering the menu (the `^\ c` vs `^\ C` case is a red
+herring; the loop upper-cases the argument). VKBD (`IMG_2066`) is the map:
+ESC key → `1b`; **arrow keys → `1b`+letter (VT52 `ESC A/B/C/D`)**; function
+keys → single high-bit bytes (`f2`, `f3`, `be`); `SCRL`-class keys → `ESC`
+plus a sequence; Ctrl-C → `03`, Enter → `0d`, BS → `08`.
+
+**Resolved the same day by making ESC the escape, not by chasing Ctrl-\.**
+The labelled `<esc>` key is the one an operator reaches for, so the Victor
+default escape is now **ESC (`0x1b`)**, set from a `ckvictor.c` initializer
+(no upstream edit; `SET ESCAPE`/`--escape` still override, and it moves the
+transfer-cancel prefix to ESC uniformly). The reason ESC looked disqualified
+— the arrow/SCRL keys emit `0x1b`+bytes — is handled by the `ready=` column
+of that same VKBD dump: **after the standalone `<esc>` key `conchk()` reads
+`ready=0`, after an arrow's `0x1b` it reads `ready=1`.** So `conect()` peeks
+`conchk()` right after a `0x1b`: a byte already pending ⇒ the lead of a
+sequence bound for the host, pass it through; nothing pending ⇒ the `<esc>`
+key, open the menu (a human types the command as a later, separate press, so
+that path stays `ready=0`). The only cost is that a literal ESC to the host
+is a double-press (ESC ESC), the standard price of ESC-as-escape. **Needs a
+hardware re-confirm**: press `<esc> ?` in CONNECT (menu should open) and an
+arrow (should pass through). Built and staged; `conect()` peek + the
+`v9k_set_escape` initializer.
+
+**Two things to carry.** The file-collision prompt appears **mid-screen**
+during the fullscreen display, because the query is a plain `printf` and the
+curses display has the cursor parked in a field — cosmetic, upstream's
+display-vs-prompt seam, not the CONNECT loop; it should route to the message
+line, and it is worth checking why the parser build asked at all when §16av
+set FILE COLLISION to REPLACE. And the modem-signal reads are good on
+hardware (`IMG_2067`: CD/DSR/CTS/DTR/RTS On, RI Off), which is RR0 read
+correctly under `show comm`.
+
+## 16bg. CONNECT re-confirmed: the ESC escape works, the round trip works, and DTR is an unread pin
+
+**5 September 2026, on the real Victor 9000**, over the direct USB-C→RS-232
+cable to a Mac, operator at the keyboard, no photographs and no redirect —
+this sitting was interactive by nature and its evidence is what the operator
+saw. **No code change, no rebuild, no upstream edit — still twenty-six.** The
+binaries are the ones §16bf staged on 29 August: `CKERMITW.EXE` md5
+`e976c2c0…` and `CKICP.EXE` md5 `7d553246…`, verified against the image
+before the sitting (A: had 128 KB free, not the 200 KB `HW_TEST_16be.md`
+records — enough for one 32 KB receive; `RCVBE.DAT` was a fresh name).
+
+**§16bf's open item (a) is closed: ESC as the escape character works on the
+machine.** In `CKICP` → `connect`, **`<esc> ?` opened the menu, `<esc> S`
+printed the status line, `<esc> C` returned to `C-Kermit>`** — the
+parser-build return path that `-c` does not take, and the whole reason there
+are two binaries. That is the `conchk()` peek doing its job on real silicon:
+the standalone `<esc>` key arrives with nothing pending and opens the menu,
+where §16bf's Ctrl-\ passed straight through. (Arrow-key pass-through, the
+other half of the peek, was not separately exercised this sitting; VKBD's
+`ready=1` reading in §16bf is still the evidence for it.)
+
+**§16bf's item (b), leg CD, is closed: the BBS-shaped round trip works end to
+end.** `connect` → `<esc> C` → `receive` on the Victor, `send` on the Mac,
+transfer completed as expected → `connect` again → a sentence typed in each
+direction appeared on the far screen → `<esc> C` → `exit`. Every step landed
+where it should. This is the workflow item 18 exists for: reach a host in
+CONNECT, drop to the prompt for a Kermit transfer, and go back. (The received
+file was not md5'd this sitting; the transfer path itself is the one
+§16ah/§16bc measured byte-exact, and nothing in the loop touches it.)
+
+**The file-collision prompt landed mid-screen again**, as §16bf recorded —
+confirmed on the second sitting, so it is reproducible and not a one-off.
+Still cosmetic, still upstream's display-vs-prompt seam, and the second
+question stands with it: why the parser build asks at all when §16av set
+FILE COLLISION to REPLACE.
+
+### The DTR finding, and what it does and does not say
+
+**`<esc> H` returned to the prompt and the DTR LED stayed lit. `exit` also
+left it lit.** The operator's cable has an LED on every pin, so this is a
+reading of the Victor's DTR line as seen from the wire, taken after each
+keystroke.
+
+**That reading is consistent with the design.** `wcc -pl` on `ckutio.c`
+(the rule from §16aj: read the preprocessed function, not the source) shows
+this build compiles the general `BSD44ORPOSIX` arm of `tthang()`:
+`tcgetattr`, `cfsetospeed(B0)`, `tcsetattr`, `msleep(500)`, restore the speed,
+`tcsetattr` again. Our `tcsetattr()` B0 arm (§1b) clears WR5 bits 7 and 1 —
+`cr5 &= 0x7d`, `msxv90.asm`'s `DTR_RTS_OFF` — through the OEM driver's IOCTL
+write, and the restore sets them again. **So a hangup is a half-second
+pulse by construction**, and DTR is asserted again before an eye moves from
+the keyboard to the LED. `exit` is the same pulse from `ttclos()` under
+`exithangup`, after which `v9k_ser_release()` hands the chip back and the OEM
+driver holds DTR positive (§16an's first table row). Steady-state "lit" after
+both commands is exactly what a working implementation looks like. A modem
+hangs up on a 500 ms drop; it does not need DTR to stay down.
+
+**And it is equally consistent with a fault, because nothing has ever read
+this pin.** Three facts to keep separate:
+
+- §16an's capture was **RTS**, not DTR, and it was taken **before** §16av
+  repaired `msleep()`; the 175 µs it saw was attributed to the sleep that
+  did not sleep. The DTR pin has never been on an analyzer, and the repaired
+  `msleep()` has never been verified on *any* pin. "The pulse is 500 ms" is
+  a claim from source.
+- The residual suspect is the **OEM driver's IOCTL write** — it blips RTS on
+  every reprogram (§16an), and if it forces DTR on regardless of the CR5
+  byte it is handed, the hangup never reaches the pin. MS-DOS Kermit 3.13's
+  `SERHNG` hangs up through the same IOCTL when its "nice method" handle is
+  open, which argues the driver honours the bit. That is an argument, not a
+  reading.
+- **`HUPTIME` cannot be lengthened from the command line** for an
+  LED-visible test: it is a bare `#define HUPTIME 500` at `ckutio.c:3860`
+  and `-dHUPTIME=5000` loses to it (Watcom W140, measured). Guarding it
+  would be a twenty-seventh upstream edit; a port-side hold behind an
+  `XFLAGS` switch in the B0 arm, or a `v9k/probes/` one-shot that drops DTR
+  through the IOCTL for 5 s and then through a direct WR5 write for 5 s,
+  would answer it with the LED cable and no scope — and the probe form also
+  separates "the driver ignores the bit" from "the pulse is too short". If
+  the IOCTL turns out to ignore DTR, the fix is a direct WR5 write in the
+  B0 arm, which the §1f RTS hold-off already does and which the port is
+  entitled to since §1e owns the chip.
+
+**Decision, 5 September: not pursued now.** No modem has ever been on this
+bench, the direct cable does not care about DTR, and the round trip item 18
+was built for works. It stays on the list as a measurement, not a defect —
+leg CC's DTR half, still unread.
+
+**One method point.** The LED is an instrument that reads *state* and the
+thing under test is a *pulse*; read after the event, it cannot distinguish
+"worked" from "never happened". §16an's rule — when the question is about a
+wire, measure the wire — has a corollary: **measure it at the moment the
+wire is supposed to move, or make the moment long enough to see.** The same
+gap is why §16an put a scope on RTS instead of trusting `held=`.
+
+**Where item 18 stands after this sitting.** Tier 1 is verified on hardware
+in every part MAME could not reach except the two scope legs (BREAK and
+DTR). Tier 2 was retired by §16bf. What remains is `CK_AUTODL` (auto-start a
+receive when a Kermit S packet arrives mid-CONNECT — OFF in both builds,
+confirmed by `wcc -pl`), the collision-prompt cosmetic and its REPLACE
+question, and the DTR reading above.
