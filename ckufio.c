@@ -616,10 +616,10 @@ pam_cb(num_msg, msg, resp, appdata_ptr)
             if (pam_pw) {
                 ckstrncpy(message,pam_pw,PAM_MAX_MSG_SIZE);
             } else
-                readpass((char *)msg[i]->msg,message,PAM_MAX_MSG_SIZE);
+                readpass(msg[i]->msg,message,PAM_MAX_MSG_SIZE);
         } else if (msg[i]->msg_style == PAM_PROMPT_ECHO_ON) {
             debug(F111,"pam_cb","Reading response, with echo",0);
-            readtext((char *)msg[i]->msg,message,PAM_MAX_MSG_SIZE);
+            readtext(msg[i]->msg,message,PAM_MAX_MSG_SIZE);
         } else {
             debug(F111,"pam_cb","unknown style",0);
             return(0);
@@ -1180,7 +1180,8 @@ logwtmp(line, name, host) char *line, *name, *host;
     s1, s2, s3: strings.
 */
 VOID
-cksyslog(n, m, s1, s2, s3) int n, m; char * s1, * s2, * s3; {
+cksyslog(n, m, s1, s2, s3)
+    int n, m; const char * s1, * s2, * s3; {
     int level;
 
     if (!ckxlogging)                    /* syslogging */
@@ -2023,7 +2024,7 @@ zinfill() {
 
 int
 #ifdef CK_ANSIC
-zsout( int n, char *s )
+zsout( int n, const char *s )
 #else
 zsout(n,s) int n; char *s;
 #endif /* CK_ANSIC */
@@ -2064,7 +2065,7 @@ zsout(n,s) int n; char *s;
 
 int
 #ifdef CK_ANSIC
-zsoutl( int n, char *s )
+zsoutl( int n, const char *s )
 #else
 zsoutl(n,s) int n; char *s;
 #endif /* CK_ANSIC */
@@ -6816,7 +6817,7 @@ whoami() {
         ckstrncpy(envname, c, 255);
         debug(F110,"whoami envname",envname,0);
         if ((p = getpwnam(envname)) != NULL) {
-            if (p->pw_uid == ruid) {    /* get passwd entry for envname */
+            if (p->pw_uid == (uid_t)ruid) { /* get passwd entry for envname */
                 ckstrncpy(realname, envname, UIDBUFLEN); /* uid's are same */
                 debug(F110,"whoami realname",realname,0);
                 return(realname);
@@ -6830,7 +6831,7 @@ whoami() {
         ckstrncpy (loginname, c, UIDBUFLEN);
         debug(F110,"whoami loginname",loginname,0);
         if ((p = getpwnam(loginname)) != NULL) /* get passwd entry */
-          if (p->pw_uid == ruid)        /* for loginname */
+          if (p->pw_uid == (uid_t)ruid) /* for loginname */
             ckstrncpy(realname, envname, UIDBUFLEN); /* if uid's are same */
     }
 

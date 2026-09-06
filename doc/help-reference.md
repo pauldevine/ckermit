@@ -2261,7 +2261,7 @@ Syntax: HEAD [ switches ] filename
 Synonyms: H, HE
 
 ```
-C-Kermit 11.0.508, 2026/08/09, Copyright (C) 2025-2026,
+C-Kermit 11.0.509, 2026/08/20, Copyright (C) 2025-2026,
   John Goerzen.
 Copyright (C) 1985, 2025,
   Trustees of Columbia University in the City of New York.
@@ -7553,6 +7553,7 @@ SET TCP parameters:
  address-family: auto
  address: (none)
  address6: (none)
+ connect-timeout: 30
  http-proxy: (none)
 
 SET TELNET parameters:
@@ -8311,6 +8312,13 @@ SET TCP ADDRESS6 <ipv6-address>
   interface. Specify <ipv6-address> with a %interface (e.g. fe80::1%eth0)
   or %index (e.g. fe80::1%2) suffix.
  
+SET TCP CONNECT-TIMEOUT <seconds>
+  Sets how long a single connect() attempt waits before timing out,
+  default 30.  When a hostname resolves to multiple addresses, each
+  address is tried in turn, bounding total connection time by this
+  value times the number of addresses tried.  Specify 0 to wait
+  indefinitely.
+ 
 SET TCP KEEPALIVE { ON, OFF }
   Setting this ON might help to detect broken connections more quickly.
   (default is ON.)
@@ -8392,6 +8400,7 @@ SET TCP parameters:
  address-family: auto
  address: (none)
  address6: (none)
+ connect-timeout: 30
  http-proxy: (none)
 ```
 
