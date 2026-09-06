@@ -13,12 +13,18 @@ change the plan, change that file in the same commit.
 
 ## The port in one paragraph
 
-`CKERMITW.EXE` is a serial-only, file-transfer-only C-Kermit for the Victor
-9000, built with **Open Watcom V2** in the **large** model (far code *and* far
-data). It runs as an MS-DOS program that drives the µPD7201 serial chip and the
-8259 directly, so a single binary works on both **Victor MS-DOS 3.1** and
-**FreeDOS for Victor**. Everything that is not the serial port goes through
-**INT 21h only**.
+`CKERMITW.EXE` is a serial-only C-Kermit for the Victor 9000, built with
+**Open Watcom V2** in the **large** model (far code *and* far data). It was
+file-transfer-only until **27 August 2026**, when CONNECT came back into
+scope (item 18) and a Tier 1 pass-through terminal was built in
+`ckvictor.c` §2 — proven under MAME (§16be) and then on the machine: typing
+both ways, the ESC-key escape menu and the connect → escape → RECEIVE →
+reconnect round trip (PORTING.md §16bf, §16bg). The ANSI question closed
+with zero code — the Victor's ANSI TSR renders host ANSI and the VT52
+transfer display at once. It runs as an MS-DOS program that drives
+the µPD7201 serial chip and the 8259 directly, so a single binary works on
+both **Victor MS-DOS 3.1** and **FreeDOS for Victor**. Everything that is
+not the serial port goes through **INT 21h only**.
 
 There is **one build**. A second one, `ia16-elf-gcc` + newlib in the medium
 model, existed until 2026-08-05 and was retired: one near 64K DGROUP could not
