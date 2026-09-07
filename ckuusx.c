@@ -7164,8 +7164,16 @@ updpct(old, new) long old, new;
 #define CHAR1   '\333'          /* OS2 - CP437 */
 #define CHAR2   '\261'
 #else
+#ifdef VICTOR9K                         /* Edit 28: the Victor's character */
+#define CHAR1   '\333'          /* ROM is CP437-compatible in this range   */
+#define CHAR2   '\261'          /* (verified against the machine's own     */
+                                /* ASCII Chart, App. A) -- same bytes OS/2 */
+                                /* already uses for this bar.  See         */
+                                /* PORTING.md SS8 edit 28.                 */
+#else
 #define CHAR1   '/'             /* Default */
 #define CHAR2   '-'
+#endif /* VICTOR9K */
 #endif /* OS2 */
     debug(F101,"updpct old","",old);
     debug(F101,"updpct new","",new);
