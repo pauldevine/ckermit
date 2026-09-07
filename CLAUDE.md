@@ -1161,7 +1161,7 @@ socket is single-use, so start `socat` first and never probe the port.
 ## Hard rules
 
 1. **Do not modify upstream C-Kermit files.** The port's value is that the
-   protocol engine is untouched. There are exactly twenty-seven upstream
+   protocol engine is untouched. There are exactly twenty-eight upstream
    edits (listed in `PORTING.md` §8); nineteen of the first twenty-six are
    wrapped in `#ifndef` or `#ifdef VICTOR9K` and change nothing on any other
    platform. **14, 15, 16 and 23-26 are not, and all seven are flagged as
@@ -1210,9 +1210,24 @@ socket is single-use, so start `socat` first and never probe the port.
    only platform actually missing `sigaction()`: the `#else` arm restores
    the plain `signal(SIGALRM,handler)` call the refactor deleted, a pure
    no-op for every other platform.
-   If you think you need a twenty-eighth, say so
+   **28 is guarded and purely additive, the same shape as 18**: `ckuusx.c`'s
+   `updpct()` gets a `VICTOR9K` arm beside its existing `OS2` one, so the
+   file-transfer percentage bar fills with `\333`/`\261` (CP437 full block
+   and medium shade) instead of `/` and `-`. The bytes are the ones OS/2
+   already sends for the same bar; what had to be checked was only whether
+   the Victor's own character ROM has them at those code points, since this
+   console's escape sequences are VT52/Z19 and not ANSI (§16ao) — its
+   *glyphs* were a separate question. The Victor's own MS-DOS 3.1 Reference,
+   Appendix A, settled it: 128–255 is standard CP437, full block at 219
+   included. Verified under MAME, not just read off the chart: a 26,800-byte
+   receive at 9600, screen-captured through the transfer, shows a solid
+   filled bar at 41% and 100% rather than a row of slashes, and the transfer
+   itself is untouched, 26,800/26,800 bytes byte-exact, `rxlost=0 rxfull=0`.
+   DGROUP and image size are unchanged to the byte, as expected for a
+   `#define` choosing between two already-compiled character constants.
+   If you think you need a twenty-ninth, say so
    explicitly rather than doing it quietly — the seventh through
-   twenty-seventh were all agreed that way. Say it again if
+   twenty-eighth were all agreed that way. Say it again if
    the edit turns out to need a second file: 12 and 13 both did, and 13's
    second half was the one that made the first half do anything.
    **18 is the model for how to add one**: purely additive (no upstream line
@@ -1283,6 +1298,7 @@ socket is single-use, so start `socat` first and never probe the port.
 | `v9k/probes/` | genuine one-shots, kept so the answer stays checkable; build line at the top of each |
 | `ckutio.c` | serial, console, timers — **stock upstream except upstream edits 18, 23, 24 and 27**. 18 is the `VICTOR9K` bulk-read arm at the bottom of `ttinl()`'s per-byte loop (§16aq): purely additive, `--nobulk` disables it at run time and `v9k: bulk sel= n=` says which arm ran. **23 and 24 are unguarded** — 23 makes `ttpkt()`'s `TESTING234` block preserve `IXON|IXOFF` instead of clearing them four lines before `tcsetattr()`, 24 hoists `ttoc()`'s only `tcflow(TCOON)` out of a `debug()` argument (moved to `ttoc()`'s `ttoc_failed` path by the 11.0.509 merge, §16bh). Both were found by §16aj and carried as report-only for five sections. **27 is guarded** (`#ifndef VICTOR9K` — not `CK_POSIX_SIG`, which is Linux-only and broke BSD/macOS CI the first time): restores the plain `signal(SIGALRM,handler)` call upstream's jump-reduction refactor replaced with an unconditional `sigaction()`, which Open Watcom's DOS libc does not have (§16bh) |
 | `ckufio.c` | file system — **stock upstream except upstream edits 19, 21 and 25**. 19 is one declaration in `zfcdat()`: `unsigned int mtime` was truncating a `time_t` and dating the whole volume to 1970 (§16ax). 21 is a purely additive `VICTOR9K` arm at the top of `znewn()` calling `v9k_backupname()`, so BACKUP and RENAME produce a name FAT can hold (§16bb). **25 is unguarded**: `zchko()` no longer opens with `O_CREAT` and no longer `zdelet()`s, because only an existing file can be a terminal and creating one to ask `isatty()` cost **4.4 s per received file** on a FAT root (§16bc) |
+| `ckuusx.c` | UI/display support (`SET`/`SHOW` internals, the fullscreen transfer display's field logic) — **stock upstream except upstream edit 28**: a `VICTOR9K` arm beside the existing `OS2` one in `updpct()`, so the percentage-bar fill is `\333`/`\261` (CP437 full block/medium shade) instead of `/`/`-`. Purely additive and guarded, same shape as edit 18; verified under MAME (§8 edit 28) |
 | `ckc*.c` | protocol core — do not touch. **The exceptions are edits 17, 18, 20, 22 and 26** — 26 is one unguarded line in `ckcfns.c`'s `snddir()`, giving an `if` with no body a body so a failed `zfnqfp()` cannot leave `fnbuf` uninitialised under the listing header's `sprintf` (§16aw) — 22 is one guard in `ckcfn3.c`'s `gattr()`, making `case 'M'` live so a MAIL disposition is refused in the A-packet ACK the way PRINT already is (§16bb) — and 20 is the only one that adds a capability: a `VICTOR9K` `sndspace()` in `ckcfns.c` and the arm in `ckcpro.w` that calls it, so `REMOTE SPACE` is answered from INT 21h rather than from a `df` that `NOPUSH` deleted (§16ax) |
 
 ## Code style

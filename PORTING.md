@@ -316,7 +316,7 @@ Streaming is **not** network-coupled — it is negotiated protocol behaviour in
 
 ## 8. Upstream changes made
 
-Twenty-seven edits, nineteen of the first twenty-six small, guarded and
+Twenty-eight edits, nineteen of the first twenty-six small, guarded and
 invisible to every other platform. **Edits 14, 15, 16 and 23-26 are the
 exceptions and are flagged as such**: 14 repairs a mis-nested `#endif` in
 `ckcmai.c`, and a preprocessor conditional cannot itself be made
@@ -1117,6 +1117,52 @@ combination of flags.
     pre-refactor behaviour, and every non-`VICTOR9K` platform — Linux,
     BSD, macOS, `CK_POSIX_SIG` or not — keeps the unchanged, unconditional
     `sigaction()` body upstream shipped and cannot see this edit at all.
+
+28. **`ckuusx.c`** — `updpct()`'s progress-bar fill character, a `VICTOR9K`
+    arm added beside the existing `OS2` one:
+
+    ```c
+    #ifdef OS2
+    #define CHAR1   '\333'          /* OS2 - CP437 */
+    #define CHAR2   '\261'
+    #else
+    #ifdef VICTOR9K
+    #define CHAR1   '\333'
+    #define CHAR2   '\261'
+    #else
+    #define CHAR1   '/'             /* Default */
+    #define CHAR2   '-'
+    #endif
+    #endif /* OS2 */
+    ```
+
+    Stock upstream draws the SET FILE PERCENTAGE thermometer with `/` and a
+    trailing `-` for the odd half-increment — legible, but a row of slashes
+    rather than a bar. `\333`/`\261` (CP437 full block and medium shade,
+    decimal 219/177) are the bytes OS/2 already sends for the same purpose;
+    the question was only whether the Victor's own character ROM has them
+    at those code points, since this console is VT52/Z19 and not ANSI
+    (§16ao) and nothing before this edit said anything about its *glyphs*
+    as opposed to its escape sequences. The Victor's own MS-DOS 3.1
+    Reference, Appendix A, answers it: the extended range 128–255 is
+    byte-for-byte standard CP437, full block at 219 included. `updpct()`
+    writes through `printw()` → `printf()` → `v9k_write()` → INT 21h
+    `AH=40h`, the same untranslated byte path the `/` character already
+    used, so no other plumbing changes.
+
+    **Verified under MAME, not just read off the chart.** `HW_TEST` leg
+    (6 September 2026, Victor MS-DOS 3.1, host C-Kermit 9.0.302 over the
+    `-bitb` socket, 9600, `SET FILE COLLISION` default): a 26,800-byte
+    binary receive, screen-captured every 5 s through the transfer. At 0%
+    the bar field is empty; by 41% it is a solid, unbroken filled bar
+    against the `...10...20...100` scale, not a row of separate glyphs;
+    at 100% it fills the field. The transfer itself is unaffected by
+    construction and confirmed so: 26,800/26,800 bytes byte-exact,
+    `rxlost=0 rxfull=0`, host reports `SUCCESS`, 0 damaged packets, 0
+    timeouts, 0 retransmissions, 720 cps. **DGROUP 48,912 of 65,536
+    (74%) and `ckermitw.exe` 233,942 bytes, both unchanged to the byte**
+    — expected, since the edit only picks which of two already-compiled
+    character constants a `#define` resolves to.
 
 ---
 
